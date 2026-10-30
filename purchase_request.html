@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<title>purchase.request — State Machine Simulator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --border: #2a2f3a;
+    --text: #e6e8ee; --muted: #8b93a7; --accent: #5b8cff; --accent2: #3dd6a3;
+    --warn: #ffb547; --danger: #ff6b6b; --edge: #3a4152;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", "Sarabun", "Noto Sans Thai", sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 20px;
+    border-bottom: 1px solid var(--border); background: var(--panel); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header code { color: var(--accent2); }
+  header .spacer { flex: 1; }
+  button.btn { background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit; }
+  button.btn:hover:not(:disabled) { border-color: var(--accent); }
+  button.btn:disabled { opacity: .4; cursor: not-allowed; }
+  .layout { display: grid; grid-template-columns: 1fr 380px; height: calc(100vh - 57px); }
+  #canvas { position: relative; overflow: hidden; }
+  svg { width: 100%; height: 100%; display: block; cursor: grab; }
+  svg.dragging { cursor: grabbing; }
+  aside { border-left: 1px solid var(--border); background: var(--panel); overflow-y: auto; padding: 16px; }
+  aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+    margin: 20px 0 8px; font-weight: 600; }
+  aside h2:first-child { margin-top: 0; }
+  .current { background: var(--panel2); border: 1px solid var(--accent); border-radius: 8px; padding: 12px; }
+  .current .key { font-family: ui-monospace, Menlo, monospace; color: var(--accent2); font-size: 13px; }
+  .current .name { font-size: 18px; font-weight: 600; margin: 2px 0 6px; }
+  .current .desc { color: var(--muted); font-size: 13px; }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .tag { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: #262b36; color: var(--muted); }
+  .tag.ok { background: #143b2f; color: var(--accent2); }
+  .tag.final { background: #3a1d22; color: var(--danger); }
+  .event { display: block; width: 100%; text-align: left; margin-bottom: 8px; padding: 10px 12px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    cursor: pointer; font: inherit; }
+  .event:hover:not(.blocked) { border-color: var(--accent); background: #222a3a; }
+  .event.blocked { opacity: .55; cursor: not-allowed; }
+  .event .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .event .label { font-weight: 600; }
+  .event .to { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--accent2); white-space: nowrap; }
+  .event .meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .event .meta code { color: #c3b5ff; }
+  .event .guard { font-size: 12px; margin-top: 4px; color: var(--warn); }
+  .event .guard.pass { color: var(--accent2); }
+  .event .fx { font-size: 12px; margin: 4px 0 0; padding-left: 16px; color: #aab3c5; }
+  .event .ref { font-size: 11px; word-break: break-all; color: #6a7286; margin-top: 4px; font-family: ui-monospace, Menlo, monospace; }
+  .actor { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 4px; margin-right: 6px; }
+  .ctx label { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 6px 0; border-bottom: 1px dashed var(--border); }
+  .ctx input[type=number] { width: 130px; background: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+  .ctx .hint { font-size: 12px; color: var(--muted); }
+  ol.log { padding-left: 20px; margin: 0; font-size: 12px; }
+  ol.log li { margin-bottom: 4px; color: var(--muted); }
+  ol.log li b { color: var(--text); font-weight: 500; }
+  ol.log code { color: var(--accent2); }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+    margin-right: 5px; vertical-align: -1px; background: var(--c); }
+  .toolbar { position: absolute; left: 16px; bottom: 16px; display: flex; gap: 8px; align-items: center; }
+  .toolbar label { font-size: 12px; color: var(--muted); background: var(--panel); padding: 6px 10px;
+    border: 1px solid var(--border); border-radius: 6px; }
+  /* svg */
+  .node rect { fill: var(--panel2); stroke: var(--border); stroke-width: 1.5; transition: all .2s; }
+  .node text.k { fill: var(--muted); font: 11px ui-monospace, Menlo, monospace; }
+  .node text.n { fill: var(--text); font-size: 14px; font-weight: 600; }
+  .node.final rect { stroke-dasharray: 0; stroke-width: 3; stroke: #4a3036; }
+  .node.reachable rect { stroke: #4b6bbf; cursor: pointer; }
+  .node.reachable:hover rect { fill: #24304a; }
+  .node.active rect { fill: #1d2c52; stroke: var(--accent); stroke-width: 2.5; filter: url(#glow); }
+  .node.visited:not(.active) rect { stroke: #35506e; }
+  .node.initial-mark circle { fill: var(--text); }
+  path.edge { fill: none; stroke: var(--edge); stroke-width: 1.4; opacity: .55; transition: all .2s; }
+  path.edge.out { stroke: var(--accent); stroke-width: 2.2; opacity: 1; }
+  path.edge.out.blocked { stroke: var(--warn); stroke-dasharray: 5 4; opacity: .8; }
+  path.edge.taken { stroke: var(--accent2); stroke-width: 2.4; opacity: 1; }
+  path.edge.dim { opacity: .35; }
+  g.elabel { cursor: pointer; }
+  g.elabel rect { fill: #233056; stroke: var(--accent); rx: 5; }
+  g.elabel.blocked rect { fill: #3a2f1b; stroke: var(--warn); }
+  g.elabel text { fill: var(--text); font-size: 11.5px; }
+  g.elabel:hover rect { fill: #2f4280; }
+  .flash { animation: flash .6s ease-out; }
+  @keyframes flash { from { filter: drop-shadow(0 0 14px var(--accent2)); } to { filter: none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>State machine <code>purchase.request</code> (พ.1) — simulator</h1>
+  <div class="legend">
+    <span style="--c:#5b8cff">ผู้ใช้กดปุ่ม</span>
+    <span style="--c:#c084fc">ระบบสารบรรณ</span>
+    <span style="--c:#f472b6">ใบขออนุมัติ พจ.1</span>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn" id="undo" title="Ctrl+Z">↶ ย้อนกลับ</button>
+  <button class="btn" id="reset">⟲ เริ่มใหม่</button>
+</header>
+<div class="layout">
+  <div id="canvas">
+    <svg id="svg"></svg>
+    <div class="toolbar">
+      <label><input type="checkbox" id="showAll" checked /> แสดงเส้นทั้งหมด</label>
+      <label><input type="checkbox" id="showCancel" /> แสดงเส้นยกเลิก</label>
+      <button class="btn" id="fit">พอดีจอ</button>
+    </div>
+  </div>
+  <aside>
+    <h2>สถานะปัจจุบัน</h2>
+    <div class="current" id="current"></div>
+
+    <h2>Events ที่ทำได้</h2>
+    <div id="events"></div>
+
+    <h2>Context (เงื่อนไข guard)</h2>
+    <div class="ctx">
+      <label>estimated_cost (บาท)
+        <input type="number" id="cost" min="0" step="1000" value="50000" /></label>
+      <div class="hint" id="egpHint"></div>
+      <label><span>กรอก <code>egp_project_id</code> แล้ว</span> <input type="checkbox" id="egpId" /></label>
+      <label><span>พจ.1 <code>use_purchase_order</code></span> <input type="checkbox" id="usePO" checked /></label>
+      <label>ใบจองงบ (commitment) ยืนยันแล้ว <input type="checkbox" id="reserved" /></label>
+    </div>
+
+    <h2>ประวัติ</h2>
+    <ol class="log" id="log"></ol>
+  </aside>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Model — mapped from the KMITL purchase_request_* modules (16.0)
+// ---------------------------------------------------------------------------
+const ACTORS = {
+  requester: { th: "ผู้ขอ", c: "#5b8cff" },
+  verifier:  { th: "ผู้ตรวจสอบ พ.1", c: "#5b8cff" },
+  budget:    { th: "ผู้จองงบประมาณ", c: "#5b8cff" },
+  manager:   { th: "ผู้จัดการ / ผู้ขอ", c: "#5b8cff" },
+  officer:   { th: "เจ้าหน้าที่พัสดุ", c: "#5b8cff" },
+  sarabun:   { th: "สารบรรณ (ระบบ)", c: "#c084fc" },
+  pa:        { th: "พจ.1 (ระบบ)", c: "#f472b6" },
+};
+
+const W = 178, H = 58;
+const STATES = {
+  draft:            { th: "ร่าง", x: 90, y: 170, initial: true, editable: true,
+    desc: "ผู้ขอกรอกรายการ งบประมาณ และเอกสารแนบ" },
+  to_verify:        { th: "รอตรวจสอบ", x: 320, y: 170, editable: true,
+    desc: "ผู้ตรวจสอบ พ.1 ตรวจความถูกต้อง (group_purchase_request_verify)" },
+  to_verify_budget: { th: "รอจองงบประมาณ", x: 550, y: 170,
+    desc: "เจ้าหน้าที่งบจองงบ — สร้างใบจองใหม่ หรือตัดจากใบจองเดิม / โครงการ / แผนจัดซื้อ" },
+  to_approve:       { th: "รออนุมัติ (สร้างหนังสือ)", x: 780, y: 170,
+    desc: "จองงบแล้ว รอสร้างและส่งหนังสือสารบรรณ" },
+  sent:             { th: "ส่งสารบรรณแล้ว", x: 1010, y: 170,
+    desc: "หนังสือเวียนอยู่ในระบบสารบรรณ รอผลการพิจารณา" },
+  returned:         { th: "ถูกตีกลับ (สารบรรณ)", x: 1010, y: 380, editable: true,
+    desc: "สารบรรณตีกลับให้แก้ไข แก้แล้วส่งหนังสือใหม่ได้" },
+  in_egp:           { th: "รอ e-GP", x: 1250, y: 70,
+    desc: "is_egp (ยอด > 100,000) — รอเลขที่โครงการ e-GP (egp_status = waiting)" },
+  in_approval:      { th: "อยู่ระหว่างขออนุมัติ (พจ.1)", x: 1250, y: 270,
+    desc: "สร้างใบขออนุมัติ พจ.1 อัตโนมัติ — รอ พจ.1 ได้รับอนุมัติ" },
+  in_progress:      { th: "อยู่ระหว่างจัดซื้อจัดจ้าง", x: 1490, y: 170,
+    desc: "รอสร้างใบสั่งซื้อ/จ้าง (PO)" },
+  done:             { th: "เสร็จสิ้น", x: 1490, y: 380, final: true,
+    desc: "สร้าง PO แล้ว / พจ.1 ไม่ใช้ PO" },
+  rejected:         { th: "ไม่อนุมัติ", x: 1250, y: 500, final: true,
+    desc: "line ทั้งหมดถูก cancel, ใบจองงบถูกยกเลิก" },
+  cancelled:        { th: "ยกเลิก", x: 660, y: 500, final: true,
+    desc: "ยกเลิกพร้อมเหตุผล (wizard) — ใบจองงบถูกยกเลิก" },
+};
+
+const cancelT = (from, extra = {}) => ({
+  from, to: "cancelled", event: "button_cancel", label: "ยกเลิก", actor: "officer", cancel: true,
+  effects: ["เปิด wizard บังคับใส่เหตุผล", "ยกเลิกใบจองงบประมาณ (ถ้ามี)"],
+  ref: "purchase_request_kmitl/models/purchase_request.py:313", ...extra,
+});
+
+const T = [
+  // draft
+  { from: "draft", to: "to_verify", event: "button_to_verify", label: "ขออนุมัติ", actor: "requester",
+    effects: ["ตรวจ exception (popup ถ้าไม่ผ่าน)", "ตั้ง date_start = วันนี้"],
+    ref: "purchase_request_kmitl/models/purchase_request.py:215" },
+  cancelT("draft"),
+
+  // to_verify
+  { from: "to_verify", to: "to_verify_budget", event: "button_to_approve", label: "ตรวจสอบ", actor: "verifier",
+    effects: ["บันทึก verified_by / date_verified"],
+    ref: "purchase_request_budget/models/purchase_request.py:343" },
+  { from: "to_verify", to: "draft", event: "button_return", label: "ตีกลับ", actor: "verifier",
+    effects: ["wizard ใส่เหตุผล → button_draft", "ล้าง verified_by"],
+    ref: "purchase_request_kmitl/models/purchase_request.py:354" },
+  { from: "to_verify", to: "draft", event: "button_draft", label: "ดึงกลับ (Reset)", actor: "manager",
+    effects: ["ผู้ขอเอง หรือ manager", "ยกเลิกใบจองงบ (ถ้ามี)"],
+    ref: "purchase_request_kmitl/models/purchase_request.py:266" },
+  cancelT("to_verify"),
+
+  // to_verify_budget
+  { from: "to_verify_budget", to: "to_approve", event: "action_reserve_budget", label: "จองงบประมาณ", actor: "budget",
+    effects: ["สร้าง/ตัด budget.commitment", "บันทึก budget_committed_by"],
+    set: { reserved: true },
+    ref: "purchase_request_budget/models/purchase_request.py:418" },
+  { from: "to_verify_budget", to: "to_verify", event: "button_return", label: "ตีกลับ", actor: "budget",
+    effects: ["ถอยทีละขั้น (ADR-0010)", "ไม่ยกเลิกใบจองที่ยังมีผล", "ล้าง verified_by"],
+    ref: "purchase_request_budget/models/purchase_request.py:376" },
+  { from: "to_verify_budget", to: "to_verify", event: "action_recall_to_verify", label: "ดึงกลับ", actor: "verifier",
+    guard: (c) => c.reserved ? "จองงบแล้ว ดึงกลับไม่ได้ — ให้ผู้จองงบตีกลับแทน" : null,
+    guardText: "ใบจองงบยังไม่ยืนยัน (False/draft/cancel)",
+    effects: ["ล้าง verified_by"],
+    ref: "purchase_request_budget/models/purchase_request.py:395" },
+  cancelT("to_verify_budget"),
+
+  // to_approve
+  { from: "to_approve", to: "sent", event: "_on_sarabun_circulating", label: "สร้างหนังสือ → ส่ง", actor: "sarabun",
+    effects: ["action_submit_to_sarabun สร้าง sarabun.document", "แนบเอกสารเป็นสิ่งที่ส่งมาด้วย", "กดส่ง → หนังสือเริ่มเวียน"],
+    ref: "purchase_request_sarabun/models/purchase_request.py:47" },
+  { from: "to_approve", to: "draft", event: "button_draft", label: "ดึงกลับ (Reset)", actor: "manager",
+    guardText: "manager เท่านั้น",
+    effects: ["ยกเลิกใบจองงบ (ยกเว้น bridge โครงการ/แผน)", "ล้าง verified_by, budget_committed_by"],
+    set: { reserved: false },
+    ref: "purchase_request_budget/models/purchase_request.py:655" },
+  cancelT("to_approve"),
+
+  // sent
+  { from: "sent", to: "in_egp", event: "_on_sarabun_completed", label: "สารบรรณอนุมัติ [e-GP]", actor: "sarabun",
+    guard: (c) => c.cost > 100000 ? null : "is_egp = False (ยอด ≤ 100,000)",
+    guardText: "is_egp (estimated_cost > 100,000)",
+    effects: ["บันทึก approved_by", "egp_status = waiting"],
+    ref: "purchase_request_egp/models/purchase_request.py:68" },
+  { from: "sent", to: "in_approval", event: "_on_sarabun_completed", label: "สารบรรณอนุมัติ", actor: "sarabun",
+    guard: (c) => c.cost > 100000 ? "is_egp = True (ยอด > 100,000)" : null,
+    guardText: "not is_egp",
+    effects: ["บันทึก approved_by", "สร้าง พจ.1 อัตโนมัติ (หรือปลุก พจ.1 ที่ค้าง pending_pr)"],
+    ref: "purchase_request_approval/models/purchase_request.py:109" },
+  { from: "sent", to: "returned", event: "_on_sarabun_returned", label: "สารบรรณตีกลับ", actor: "sarabun",
+    effects: [], ref: "purchase_request_sarabun/models/purchase_request.py:65" },
+  { from: "sent", to: "rejected", event: "_on_sarabun_rejected", label: "สารบรรณไม่อนุมัติ", actor: "sarabun",
+    effects: ["button_rejected → cancel lines", "ยกเลิกใบจองงบ"],
+    set: { reserved: false },
+    ref: "purchase_request_sarabun/models/purchase_request.py:61" },
+  { from: "sent", to: "cancelled", event: "_on_sarabun_cancelled", label: "สารบรรณยกเลิก", actor: "sarabun", cancel: true,
+    effects: ["ยกเลิกจากสารบรรณ"], set: { reserved: false },
+    ref: "purchase_request_sarabun/models/purchase_request.py:75" },
+  cancelT("sent"),
+
+  // returned
+  { from: "returned", to: "sent", event: "action_resend_to_sarabun", label: "ส่งหนังสือใหม่", actor: "requester",
+    effects: ["document.action_send() → เวียนอีกครั้ง"],
+    ref: "purchase_request_sarabun/models/purchase_request.py:69" },
+  cancelT("returned"),
+
+  // in_egp
+  { from: "in_egp", to: "in_progress", event: "action_egp_in_progress", label: "อยู่ในกระบวนการ e-GP", actor: "officer",
+    guard: (c) => c.egpId ? null : "กรุณากรอกเลขที่โครงการ e-GP ก่อน",
+    guardText: "มี egp_project_id",
+    effects: ["egp_status = in_progress"],
+    ref: "purchase_request_egp/models/purchase_request.py:107" },
+
+  // in_approval
+  { from: "in_approval", to: "in_progress", event: "pa.button_approved", label: "พจ.1 อนุมัติ", actor: "pa",
+    guard: (c) => c.usePO ? null : "พจ.1 ไม่ใช้ PO → ไป done ทันที",
+    guardText: "use_purchase_order",
+    effects: ["schedule activity สร้าง PO"],
+    ref: "purchase_request_approval/models/purchase_request_approval.py:446" },
+  { from: "in_approval", to: "done", event: "pa.button_approved", label: "พจ.1 อนุมัติ [ไม่ใช้ PO]", actor: "pa",
+    guard: (c) => c.usePO ? "use_purchase_order = True" : null,
+    guardText: "not use_purchase_order",
+    effects: ["in_progress → button_done() ต่อทันที"],
+    ref: "purchase_request_approval_disbursement/models/purchase_request_approval.py:120" },
+  { from: "in_approval", to: "to_verify", event: "pa._action_return_for_revision", label: "พจ.1 ตีกลับ/แก้ไข", actor: "pa",
+    effects: ["พจ.1 → pending_pr (เก็บเลข)", "ยกเลิกหนังสือสารบรรณเดิม", "ใบจองงบยังอยู่"],
+    ref: "purchase_request_approval/models/purchase_request_approval.py:550" },
+  { from: "in_approval", to: "rejected", event: "pa._action_do_reject", label: "พจ.1 ไม่อนุมัติ", actor: "pa",
+    effects: ["button_rejected", "ยกเลิกใบจองงบ"], set: { reserved: false },
+    ref: "purchase_request_approval/models/purchase_request_approval.py:495" },
+  { from: "in_approval", to: "cancelled", event: "pa._action_do_cancel", label: "พจ.1 ยกเลิก", actor: "pa", cancel: true,
+    effects: ["cascade ยกเลิก พจ.1 + พ.1"], set: { reserved: false },
+    ref: "purchase_request_approval/models/purchase_request_approval.py:477" },
+  cancelT("in_approval"),
+
+  // in_progress
+  { from: "in_progress", to: "done", event: "approval_make_purchase_order", label: "สร้าง PO จาก พจ.1", actor: "officer",
+    guard: (c) => c.cost > 100000 ? "is_egp — ใช้ปุ่ม Create PO ของ e-GP" : null,
+    guardText: "not is_egp และยังไม่มี PO",
+    effects: ["สร้าง PO ด้วยผู้ขาย/VAT จาก พจ.1"],
+    ref: "purchase_request_approval/models/purchase_request.py:336" },
+  { from: "in_progress", to: "done", event: "action_egp_create_purchase_order", label: "Create PO (e-GP)", actor: "officer",
+    guard: (c) => c.cost > 100000 ? null : "ไม่ใช่ e-GP",
+    guardText: "is_egp และ egp_status = in_progress",
+    effects: ["wizard make PO → button_done"],
+    ref: "purchase_request_egp/wizard/purchase_request_line_make_purchase_order.py:13" },
+  cancelT("in_progress"),
+];
+
+// ---------------------------------------------------------------------------
+// Simulator state
+// ---------------------------------------------------------------------------
+const ctx = { cost: 50000, egpId: false, usePO: true, reserved: false };
+let current = "draft";
+let history = []; // {from, to, t, ctxBefore}
+let lastTaken = null;
+
+const $ = (id) => document.getElementById(id);
+const svg = $("svg");
+const NS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs = {}, parent) => {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+};
+
+const outgoing = (s) => T.filter((t) => t.from === s);
+const guardOf = (t) => (t.guard ? t.guard(ctx) : null);
+
+function fire(t) {
+  if (t.from !== current || guardOf(t)) return;
+  history.push({ t, ctxBefore: { ...ctx } });
+  if (t.set) Object.assign(ctx, t.set);
+  current = t.to;
+  lastTaken = t;
+  syncCtxInputs();
+  render(true);
+}
+
+function undo() {
+  const h = history.pop();
+  if (!h) return;
+  Object.assign(ctx, h.ctxBefore);
+  current = h.t.from;
+  lastTaken = history.length ? history[history.length - 1].t : null;
+  syncCtxInputs();
+  render();
+}
+
+function reset() {
+  history = []; current = "draft"; lastTaken = null;
+  Object.assign(ctx, { reserved: false });
+  syncCtxInputs();
+  render();
+}
+
+// ---------------------------------------------------------------------------
+// Geometry
+// ---------------------------------------------------------------------------
+function borderPoint(s, tx, ty) {
+  const dx = tx - s.x, dy = ty - s.y;
+  const sx = (W / 2) / Math.abs(dx || 1e-9), sy = (H / 2) / Math.abs(dy || 1e-9);
+  const k = Math.min(sx, sy);
+  return [s.x + dx * k, s.y + dy * k];
+}
+
+// Group transitions by (from,to) so parallel events share one edge.
+function edgeGroups() {
+  const m = new Map();
+  for (const t of T) {
+    const key = t.from + ">" + t.to;
+    if (!m.has(key)) m.set(key, []);
+    m.get(key).push(t);
+  }
+  return m;
+}
+
+function edgeGeom(from, to) {
+  const a = STATES[from], b = STATES[to];
+  const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+  const nx = -dy / len, ny = dx / len;
+  const bend = Math.min(60, 18 + len * 0.08);
+  const cx = (a.x + b.x) / 2 + nx * bend, cy = (a.y + b.y) / 2 + ny * bend;
+  const [x1, y1] = borderPoint(a, cx, cy);
+  const [x2, y2] = borderPoint(b, cx, cy);
+  const mx = 0.25 * x1 + 0.5 * cx + 0.25 * x2, my = 0.25 * y1 + 0.5 * cy + 0.25 * y2;
+  return { d: `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`, mx, my };
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+let view = { x: 0, y: 0, w: 1600, h: 600 };
+function applyView() { svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`); }
+function fit() {
+  const xs = Object.values(STATES).map((s) => s.x), ys = Object.values(STATES).map((s) => s.y);
+  const pad = 70;
+  const minX = Math.min(...xs) - W / 2 - pad, maxX = Math.max(...xs) + W / 2 + pad;
+  const minY = Math.min(...ys) - H / 2 - pad, maxY = Math.max(...ys) + H / 2 + pad;
+  const r = svg.clientWidth / svg.clientHeight || 2;
+  let w = maxX - minX, h = maxY - minY;
+  if (w / h < r) { const nw = h * r; view = { x: minX - (nw - w) / 2, y: minY, w: nw, h }; }
+  else { const nh = w / r; view = { x: minX, y: minY - (nh - h) / 2, w, h: nh }; }
+  applyView();
+}
+
+function render(flash = false) {
+  svg.innerHTML = "";
+  const defs = el("defs", {}, svg);
+  defs.innerHTML = `
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    ${["edge", "out", "blocked", "taken"].map((k) => {
+      const c = { edge: "#3a4152", out: "#5b8cff", blocked: "#ffb547", taken: "#3dd6a3" }[k];
+      return `<marker id="arr-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${c}"/></marker>`;
+    }).join("")}`;
+
+  const showAll = $("showAll").checked, showCancel = $("showCancel").checked;
+  const visited = new Set([current, ...history.map((h) => h.t.from)]);
+  const outs = outgoing(current);
+  const reachable = new Set(outs.filter((t) => !guardOf(t)).map((t) => t.to));
+
+  const gEdges = el("g", {}, svg), gNodes = el("g", {}, svg), gLabels = el("g", {}, svg);
+
+  for (const [key, ts] of edgeGroups()) {
+    const [from, to] = key.split(">");
+    const isOut = from === current;
+    const isCancel = ts.every((t) => t.cancel);
+    if (!isOut && isCancel && !showCancel) continue;
+    if (!isOut && !showAll) continue;
+    const g = edgeGeom(from, to);
+    const allBlocked = isOut && ts.every((t) => guardOf(t));
+    const taken = lastTaken && lastTaken.from === from && lastTaken.to === to;
+    let cls = "edge", mk = "edge";
+    if (isOut) { cls += " out"; mk = "out"; if (allBlocked) { cls += " blocked"; mk = "blocked"; } }
+    else if (taken) { cls += " taken"; mk = "taken"; }
+    else if (outs.length) cls += " dim";
+    el("path", { d: g.d, class: cls, "marker-end": `url(#arr-${mk})` }, gEdges);
+
+    if (isOut) {
+      ts.forEach((t, i) => {
+        const blocked = !!guardOf(t);
+        const lg = el("g", { class: "elabel" + (blocked ? " blocked" : "") }, gLabels);
+        const txt = (blocked ? "⛔ " : "") + t.label;
+        const tw = txt.length * 7.2 + 16;
+        const y = g.my + (i - (ts.length - 1) / 2) * 24;
+        el("rect", { x: g.mx - tw / 2, y: y - 10, width: tw, height: 20, rx: 5 }, lg);
+        const te = el("text", { x: g.mx, y: y + 4, "text-anchor": "middle" }, lg);
+        te.textContent = txt;
+        const title = el("title", {}, lg);
+        title.textContent = `${t.event}${blocked ? "\n⛔ " + guardOf(t) : ""}`;
+        lg.addEventListener("click", (e) => { e.stopPropagation(); fire(t); });
+      });
+    }
+  }
+
+  // initial marker
+  const d0 = STATES.draft;
+  el("circle", { cx: d0.x - W / 2 - 34, cy: d0.y, r: 6, fill: "#e6e8ee" }, gNodes);
+  el("path", { d: `M${d0.x - W / 2 - 28},${d0.y} L${d0.x - W / 2 - 2},${d0.y}`, stroke: "#e6e8ee",
+    "stroke-width": 1.5, "marker-end": "url(#arr-edge)" }, gNodes);
+
+  for (const [k, s] of Object.entries(STATES)) {
+    let cls = "node";
+    if (s.final) cls += " final";
+    if (k === current) cls += " active" + (flash ? " flash" : "");
+    else if (reachable.has(k)) cls += " reachable";
+    if (visited.has(k)) cls += " visited";
+    const g = el("g", { class: cls, transform: `translate(${s.x - W / 2},${s.y - H / 2})` }, gNodes);
+    el("rect", { width: W, height: H, rx: s.final ? 14 : 9 }, g);
+    if (s.final) el("rect", { x: 4, y: 4, width: W - 8, height: H - 8, rx: 11, fill: "none",
+      stroke: "#4a3036", "stroke-width": 1 }, g);
+    el("text", { x: 12, y: 21, class: "k" }, g).textContent = k;
+    el("text", { x: 12, y: 42, class: "n" }, g).textContent = s.th;
+    if (reachable.has(k) && k !== current) {
+      g.addEventListener("click", () => {
+        const t = outs.find((t) => t.to === k && !guardOf(t));
+        if (t) fire(t);
+      });
+    }
+  }
+
+  renderPanel();
+}
+
+function renderPanel() {
+  const s = STATES[current];
+  $("current").innerHTML = `
+    <div class="key">${current}</div>
+    <div class="name">${s.th}</div>
+    <div class="desc">${s.desc}</div>
+    <div class="tags">
+      ${s.initial ? '<span class="tag">initial</span>' : ""}
+      ${s.final ? '<span class="tag final">final</span>' : ""}
+      ${s.editable ? '<span class="tag ok">is_editable</span>' : '<span class="tag">readonly</span>'}
+      <span class="tag">steps: ${history.length}</span>
+    </div>`;
+
+  const outs = outgoing(current);
+  $("events").innerHTML = outs.length ? "" :
+    '<div class="hint" style="color:var(--muted)">ไม่มี event — final state</div>';
+  for (const t of outs) {
+    const g = guardOf(t), a = ACTORS[t.actor];
+    const b = document.createElement("button");
+    b.className = "event" + (g ? " blocked" : "");
+    b.innerHTML = `
+      <div class="top"><span class="label">${t.label}</span><span class="to">→ ${t.to}</span></div>
+      <div class="meta"><span class="actor" style="background:${a.c}22;color:${a.c}">${a.th}</span><code>${t.event}</code></div>
+      ${t.guardText || g ? `<div class="guard ${g ? "" : "pass"}">${g ? "⛔ " + g : "✓ guard: " + t.guardText}</div>` : ""}
+      ${t.effects.length ? `<ul class="fx">${t.effects.map((e) => `<li>${e}</li>`).join("")}</ul>` : ""}
+      <div class="ref">${t.ref}</div>`;
+    b.addEventListener("click", () => fire(t));
+    $("events").appendChild(b);
+  }
+
+  $("log").innerHTML = history.length
+    ? history.map((h) => `<li><code>${h.t.from}</code> —<b>${h.t.label}</b>→ <code>${h.t.to}</code></li>`).join("")
+    : '<li>ยังไม่มี — กด event หรือคลิก state ที่ไฮไลต์</li>';
+  $("undo").disabled = !history.length;
+  $("egpHint").textContent = ctx.cost > 100000
+    ? "→ is_egp = True (สาย e-GP)" : "→ is_egp = False (สาย พจ.1)";
+}
+
+// ---------------------------------------------------------------------------
+// Context inputs, pan/zoom, shortcuts
+// ---------------------------------------------------------------------------
+function syncCtxInputs() {
+  $("cost").value = ctx.cost; $("egpId").checked = ctx.egpId;
+  $("usePO").checked = ctx.usePO; $("reserved").checked = ctx.reserved;
+}
+$("cost").addEventListener("input", (e) => { ctx.cost = +e.target.value || 0; render(); });
+$("egpId").addEventListener("change", (e) => { ctx.egpId = e.target.checked; render(); });
+$("usePO").addEventListener("change", (e) => { ctx.usePO = e.target.checked; render(); });
+$("reserved").addEventListener("change", (e) => { ctx.reserved = e.target.checked; render(); });
+$("showAll").addEventListener("change", () => render());
+$("showCancel").addEventListener("change", () => render());
+$("undo").addEventListener("click", undo);
+$("reset").addEventListener("click", reset);
+$("fit").addEventListener("click", fit);
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); undo(); }
+});
+
+let drag = null;
+svg.addEventListener("mousedown", (e) => { drag = { x: e.clientX, y: e.clientY, v: { ...view } }; svg.classList.add("dragging"); });
+window.addEventListener("mouseup", () => { drag = null; svg.classList.remove("dragging"); });
+window.addEventListener("mousemove", (e) => {
+  if (!drag) return;
+  const s = view.w / svg.clientWidth;
+  view.x = drag.v.x - (e.clientX - drag.x) * s;
+  view.y = drag.v.y - (e.clientY - drag.y) * s;
+  applyView();
+});
+svg.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const f = Math.exp(e.deltaY * 0.0015);
+  const r = svg.getBoundingClientRect();
+  const px = view.x + ((e.clientX - r.left) / r.width) * view.w;
+  const py = view.y + ((e.clientY - r.top) / r.height) * view.h;
+  view = { x: px - (px - view.x) * f, y: py - (py - view.y) * f, w: view.w * f, h: view.h * f };
+  applyView();
+}, { passive: false });
+window.addEventListener("resize", fit);
+
+syncCtxInputs();
+render();
+fit();
+</script>
+</body>
+</html>
