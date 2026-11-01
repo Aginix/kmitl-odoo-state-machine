@@ -7,6 +7,7 @@ Single self-contained `index.html` — open it in a browser, no build needed.
 
 | Menu | Model |
 |---|---|
+| รวม (flow เดียว) | every document as a swimlane in time order, cross-document links, scenario player |
 | ภาพรวม | all documents side by side, every event available right now |
 | พ.1 | `purchase.request` |
 | หนังสือ พ.1 | `sarabun.document` whose origin is the พ.1 |

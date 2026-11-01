@@ -118,6 +118,22 @@
   g.elabel text { fill: var(--text); font-size: 11.5px; }
   g.elabel:hover rect { fill: #2f4280; }
   .flash { animation: flash .6s ease-out; }
+  rect.lane { fill: #13161c; stroke: var(--border); }
+  text.lane-t { fill: var(--text); font-size: 20px; font-weight: 600; }
+  text.lane-s { fill: var(--muted); font: 13px ui-monospace, Menlo, monospace; }
+  path.sync { fill: none; stroke: #c084fc; stroke-width: 1.3; stroke-dasharray: 3 5; opacity: .22; }
+  path.sync.live { opacity: .95; stroke-width: 2; stroke-dasharray: 6 4; animation: dash 1s linear infinite; }
+  path.sync.taken { stroke: var(--accent2); opacity: 1; stroke-width: 2.4; stroke-dasharray: 6 4; animation: dash 1s linear infinite; }
+  @keyframes dash { to { stroke-dashoffset: -20; } }
+  .player { position: absolute; left: 16px; top: 14px; display: flex; gap: 8px; align-items: center;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+  .player select { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+    padding: 5px 8px; font: inherit; }
+  .player .prog { font-size: 12px; color: var(--muted); min-width: 44px; text-align: center; }
+  .caption { position: absolute; left: 50%; top: 64px; transform: translateX(-50%); max-width: 70%;
+    background: #1d2c52ee; border: 1px solid var(--accent); border-radius: 10px; padding: 10px 16px;
+    font-size: 15px; text-align: center; pointer-events: none; }
+  .caption:empty { display: none; }
   @keyframes flash { from { filter: drop-shadow(0 0 14px var(--accent2)); } to { filter: none; } }
 </style>
 </head>
@@ -422,6 +438,7 @@ const CASCADE = {
 };
 
 const VIEWS = [
+  { id: "unified", label: "รวม (flow เดียว)" },
   { id: "overview", label: "ภาพรวม" },
   { id: "pr", label: "พ.1", sub: "purchase.request" },
   { id: "prd", label: "หนังสือ พ.1", sub: "sarabun.document" },
@@ -500,18 +517,19 @@ function fire(r) {
   history.push({ st: { ...st }, ctx: { ...ctx }, steps: r.steps });
   const before = { ...st };
   st = r.S; ctx = r.C;
-  lastSteps = r.steps.map((s) => ({ inst: s.inst, from: before[s.inst], to: s.t.to }));
+  lastSteps = r.steps.map((s) => ({ inst: s.inst, key: s.t.key, from: before[s.inst], to: s.t.to }));
   changed = new Set(r.steps.map((s) => s.inst));
   render(true);
 }
 function undo() {
+  stopPlay(); caption = "";
   const h = history.pop();
   if (!h) return;
   st = h.st; ctx = h.ctx;
   lastSteps = []; changed = new Set();
   render();
 }
-function reset() { history = []; st = { ...INIT_ST }; ctx = { ...INIT_CTX }; lastSteps = []; changed = new Set(); render(); }
+function reset() { stopPlay(); caption = ""; player.i = 0; history = []; st = { ...INIT_ST }; ctx = { ...INIT_CTX }; lastSteps = []; changed = new Set(); render(); }
 
 // ===========================================================================
 // Rendering
@@ -549,14 +567,23 @@ function bounds(S) {
     x2: Math.max(...v.map((s) => s.x)) + W / 2 + pad, y2: Math.max(...v.map((s) => s.y)) + H / 2 + pad };
 }
 
-function drawGraph(svg, inst, opts) {
-  const { labels, showAll, showCancel } = opts;
-  svg.innerHTML = "";
-  const m = mach(inst), cur = st[inst];
-  const defs = el("defs", {}, svg);
-  defs.innerHTML = `<filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>` +
-    Object.entries({ edge: "#3a4152", out: "#5b8cff", blocked: "#ffb547", taken: "#3dd6a3" }).map(([k, c]) =>
+function addDefs(svg) {
+  el("defs", {}, svg).innerHTML = `<filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>` +
+    Object.entries({ edge: "#3a4152", out: "#5b8cff", blocked: "#ffb547", taken: "#3dd6a3", sync: "#c084fc" }).map(([k, c]) =>
       `<marker id="arr-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${c}"/></marker>`).join("");
+}
+
+function drawGraph(svg, inst, opts) {
+  svg.innerHTML = "";
+  addDefs(svg);
+  drawMachine(svg, inst, opts);
+}
+
+// Draws one machine into `parent`; returns the midpoint of every edge ("from>to").
+function drawMachine(parent, inst, opts) {
+  const { labels, showAll, showCancel } = opts;
+  const m = mach(inst), cur = st[inst];
+  const pos = opts.pos || ((k) => m.S[k]);
 
   const evals = new Map();
   for (const t of m.T) if (froms(t).includes(cur)) evals.set(t, resolve(inst, t));
@@ -570,13 +597,15 @@ function drawGraph(svg, inst, opts) {
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(t);
   }
-  const gE = el("g", {}, svg), gN = el("g", {}, svg), gL = el("g", {}, svg);
+  const mids = new Map();
+  const gE = el("g", {}, parent), gN = el("g", {}, parent), gL = el("g", {}, parent);
   for (const [k, ts] of groups) {
     const [from, to] = k.split(">");
+    const g = from === to ? loopGeom(pos(from)) : edgeGeom(pos(from), pos(to));
+    mids.set(k, g);
     const isOut = from === cur;
     if (!isOut && ts.every((t) => t.cancel) && !showCancel) continue;
     if (!isOut && !showAll) continue;
-    const g = from === to ? loopGeom(m.S[from]) : edgeGeom(m.S[from], m.S[to]);
     const blocked = isOut && ts.every((t) => !evals.get(t)?.ok);
     const isTaken = taken.some((s) => s.from === from && s.to === to);
     let cls = "edge", mk = "edge";
@@ -592,29 +621,205 @@ function drawGraph(svg, inst, opts) {
       el("rect", { x: g.mx - tw / 2, y: y - 10, width: tw, height: 20, rx: 5 }, lg);
       el("text", { x: g.mx, y: y + 4, "text-anchor": "middle" }, lg).textContent = txt;
       el("title", {}, lg).textContent = t.key + (r.ok ? "" : "\n⛔ " + r.reason);
-      lg.addEventListener("click", (e) => { e.stopPropagation(); fire(r); });
+      lg.addEventListener("click", (e) => { e.stopPropagation(); userFire(r); });
     });
   }
-  const init = Object.entries(m.S).find(([, s]) => s.initial)[1];
+  const init = pos(Object.keys(m.S).find((k) => m.S[k].initial));
   el("circle", { cx: init.x - W / 2 - 34, cy: init.y, r: 6, fill: "#e6e8ee" }, gN);
   el("path", { d: `M${init.x - W / 2 - 28},${init.y} L${init.x - W / 2 - 2},${init.y}`, stroke: "#e6e8ee", "stroke-width": 1.5, "marker-end": "url(#arr-edge)" }, gN);
   for (const [k, s] of Object.entries(m.S)) {
+    const p = pos(k);
     let cls = "node";
     if (s.final) cls += " final";
     if (s.ghost) cls += " ghost";
     if (k === cur) cls += " active" + (opts.flash && changed.has(inst) ? " flash" : "");
     else if (reachable.has(k)) cls += " reachable";
     if (visited.has(k)) cls += " visited";
-    const g = el("g", { class: cls, transform: `translate(${s.x - W / 2},${s.y - H / 2})` }, gN);
+    const g = el("g", { class: cls, transform: `translate(${p.x - W / 2},${p.y - H / 2})` }, gN);
     el("rect", { class: "box", width: W, height: H, rx: s.final ? 14 : 9 }, g);
     if (s.final) el("rect", { x: 4, y: 4, width: W - 8, height: H - 8, rx: 11, fill: "none", stroke: "#4a3036" }, g);
     el("text", { x: 12, y: 21, class: "k" }, g).textContent = k;
     el("text", { x: 12, y: 42, class: "n" }, g).textContent = s.th;
     if (reachable.has(k) && k !== cur) g.addEventListener("click", () => {
       const hit = [...evals].find(([t, r]) => t.to === k && r.ok);
-      if (hit) fire(hit[1]);
+      if (hit) userFire(hit[1]);
     });
   }
+  return mids;
+}
+
+// ---------------------------------------------------------------------------
+// Unified view: one swimlane per document, laid out left→right in time order,
+// with dashed links for every cross-document cascade.
+// ---------------------------------------------------------------------------
+const LANE_TOP = { pr: 0, prd: 330, pa: 660, pad: 990, po: 1320 };
+const LANE_H = 300, UP = 60, MID = 150, LOW = 250;
+const UPOS = {
+  pr: { draft: [120, MID], to_verify: [360, MID], to_verify_budget: [600, MID], to_approve: [840, MID],
+        sent: [1120, MID], returned: [1120, LOW], in_egp: [1440, UP], in_approval: [1440, MID],
+        in_progress: [2380, MID], done: [2640, MID], rejected: [1720, LOW], cancelled: [600, LOW] },
+  prd: { none: [700, MID], draft: [920, MID], circulating: [1160, MID], completed: [1440, MID],
+         returned: [1160, LOW], rejected: [1680, UP], cancelled: [1680, LOW] },
+  pa: { none: [1440, MID], draft: [1680, MID], pending_pr: [1680, LOW], to_approve: [1960, MID],
+        sarabun_returned: [1960, LOW], approved: [2200, MID], returned: [2440, LOW], rejected: [1960, UP], cancelled: [2200, LOW] },
+  pad: { none: [1560, MID], draft: [1780, MID], circulating: [2000, MID], completed: [2240, MID],
+         returned: [2000, LOW], rejected: [2240, UP], cancelled: [2240, LOW] },
+  po: { none: [2380, MID], draft: [2620, MID], sent: [2620, LOW], "to approve": [2750, UP], purchase: [2880, MID],
+        returned: [2880, LOW], done: [3140, MID], cancel: [3140, UP] },
+};
+const upos = (inst) => (k) => ({ x: UPOS[inst][k][0], y: LANE_TOP[inst] + UPOS[inst][k][1] });
+const LANE_X = -230, LANE_X2 = 3330;
+
+// Same key reached from both send and resend — only draw the pairing that can happen.
+const SYNC_SKIP = new Set([
+  "prd.send>pr.sb_circulating@returned", "prd.resend>pr.sb_circulating@to_approve",
+  "pad.send>pa.sb_circulating@sarabun_returned", "pad.resend>pa.sb_circulating@draft",
+]);
+function syncLinks() {
+  const out = [];
+  for (const [si, map] of Object.entries(CASCADE))
+    for (const [key, links] of Object.entries(map))
+      for (const t of mach(si).T.filter((x) => x.key === key))
+        for (const sf of froms(t))
+          for (const link of links) for (const k of link.keys)
+            for (const tt of mach(link.inst).T.filter((x) => x.key === k))
+              for (const tf of froms(tt))
+                if (!SYNC_SKIP.has(`${si}.${key}>${link.inst}.${k}@${tf}`))
+                  out.push({ si, t, sf, ti: link.inst, tt, tf });
+  return out;
+}
+const SYNC = syncLinks();
+
+function drawUnified(svg, flash) {
+  svg.innerHTML = "";
+  addDefs(svg);
+  const gLane = el("g", {}, svg), gSync = el("g", {}, svg);
+  const mids = {};
+  for (const i of ORDER) {
+    const y = LANE_TOP[i];
+    el("rect", { class: "lane", x: LANE_X, y, width: LANE_X2 - LANE_X, height: LANE_H, rx: 14 }, gLane);
+    el("rect", { x: LANE_X, y, width: 6, height: LANE_H, fill: INST[i].color, rx: 3 }, gLane);
+    el("text", { class: "lane-t", x: LANE_X + 22, y: y + 32 }, gLane).textContent = INST[i].short;
+    el("text", { class: "lane-s", x: LANE_X + 22, y: y + 52 }, gLane).textContent = mach(i).model;
+    mids[i] = drawMachine(el("g", {}, svg), i, { labels: true, showAll: true, showCancel: opts.showCancel, flash, pos: upos(i) });
+  }
+  if (!opts.showSync) return;
+  for (const l of SYNC) {
+    const a = mids[l.si].get(l.sf + ">" + l.t.to), b = mids[l.ti].get(l.tf + ">" + l.tt.to);
+    if (!a || !b) continue;
+    let cls = "sync";
+    const took = (inst, t, f) => lastSteps.some((s) => s.inst === inst && s.key === t.key && s.from === f);
+    if (took(l.si, l.t, l.sf) && took(l.ti, l.tt, l.tf)) cls += " taken";
+    else if (st[l.si] === l.sf && st[l.ti] === l.tf) {
+      const r = resolve(l.si, l.t);
+      if (r.ok && r.steps.some((s) => s.inst === l.ti && s.t === l.tt)) cls += " live";
+    } else if (!opts.showCancel && (l.t.cancel || l.tt.cancel)) continue;
+    const my = (a.my + b.my) / 2;
+    el("path", { class: cls, d: `M${a.mx},${a.my} C${a.mx},${my} ${b.mx},${my} ${b.mx},${b.my}`,
+      "marker-end": `url(#arr-${cls.includes("taken") ? "taken" : "sync"})` }, gSync);
+  }
+}
+
+// Camera follows whatever just moved.
+function follow() {
+  if (!lastSteps.length) return;
+  const pts = lastSteps.flatMap((s) => [upos(s.inst)(s.from), upos(s.inst)(s.to)]);
+  const x1 = Math.min(...pts.map((p) => p.x)) - 300, x2 = Math.max(...pts.map((p) => p.x)) + 300;
+  const y1 = Math.min(...pts.map((p) => p.y)) - 200, y2 = Math.max(...pts.map((p) => p.y)) + 200;
+  const svg = $("big"), r = svg.clientWidth / svg.clientHeight || 2;
+  let w = Math.max(x2 - x1, 1500), h = Math.max(y2 - y1, w / r);
+  w = Math.max(w, h * r);
+  animateVB({ inst: "unified", x: (x1 + x2) / 2 - w / 2, y: (y1 + y2) / 2 - h / 2, w, h });
+}
+let anim = null;
+function animateVB(to) {
+  cancelAnimationFrame(anim);
+  const from = { ...vb }, t0 = performance.now();
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / 450), e = 1 - Math.pow(1 - k, 3);
+    vb = { inst: to.inst };
+    for (const p of ["x", "y", "w", "h"]) vb[p] = from[p] + (to[p] - from[p]) * e;
+    applyVB();
+    if (k < 1) anim = requestAnimationFrame(step);
+  };
+  anim = requestAnimationFrame(step);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario player
+// ---------------------------------------------------------------------------
+const UPTO_BUDGET = [
+  ["pr", "request", "ผู้ขอกด ขออนุมัติ → พ.1 รอตรวจสอบ"],
+  ["pr", "verify", "ผู้ตรวจสอบกด ตรวจสอบ → รอจองงบประมาณ"],
+  ["pr", "reserve", "จองงบประมาณเสร็จ → พ.1 รอสร้างหนังสือ"],
+  ["pr", "create_sarabun", "กด Create Sarabun → เกิดหนังสือของ พ.1 (ร่าง)"],
+  ["prd", "send", "ส่งหนังสือ → หนังสือเริ่มเวียน, callback ทำให้ พ.1 เป็น sent"],
+];
+const PR_APPROVED = [...UPTO_BUDGET,
+  ["prd", "complete", "หนังสือ พ.1 อนุมัติครบ → พ.1 in_approval + สร้าง พจ.1 อัตโนมัติ"]];
+const PA_SENT = [...PR_APPROVED,
+  ["pa", "create_sarabun", "พจ.1 กด Create Sarabun → เกิดหนังสือของ พจ.1"],
+  ["pad", "send", "ส่งหนังสือ พจ.1 → พจ.1 รออนุมัติ (ออกเลข พจ.1)"]];
+const SCENARIOS = [
+  { name: "เส้นทางปกติ (มี PO)", steps: [...PA_SENT,
+    ["pad", "complete", "หนังสือ พจ.1 อนุมัติ → พจ.1 approved, พ.1 ระหว่างจัดซื้อจัดจ้าง"],
+    ["pa", "create_po", "สร้าง PO จาก พจ.1 → PO ร่าง และ พ.1 done ทันที"],
+    ["po", "confirm", "ยืนยัน PO → In Progress (ไม่ส่งผลกลับ พ.1)"],
+    ["po", "done", "PO Done"]] },
+  { name: "หนังสือ พ.1 ถูกตีกลับ แล้วส่งใหม่", steps: [...UPTO_BUDGET,
+    ["prd", "return", "ผู้พิจารณาตีกลับหนังสือ → callback ทำให้ พ.1 returned"],
+    ["prd", "resend", "แก้แล้วส่งหนังสือใหม่ → พ.1 กลับเป็น sent"],
+    ["prd", "complete", "หนังสืออนุมัติ → พ.1 in_approval + สร้าง พจ.1"]] },
+  { name: "ผู้ส่งดึงหนังสือ พ.1 กลับ", steps: [...UPTO_BUDGET,
+    ["prd", "pullback", "ผู้ส่งดึงกลับ (ยังไม่มีผู้ลงนาม) → หนังสือรอแก้ไข, พ.1 returned"],
+    ["prd", "resend", "ส่งใหม่ → พ.1 sent"]] },
+  { name: "พจ.1 ตีกลับ/แก้ไข (เก็บเลขเดิม)", steps: [...PR_APPROVED,
+    ["pa", "revise", "พจ.1 ตีกลับ/แก้ไข → พจ.1 pending_pr, พ.1 กลับไป to_verify, หนังสือ พ.1 ถูกยกเลิก"],
+    ["pr", "verify", "ผู้ตรวจสอบตรวจใหม่"],
+    ["pr", "reserve", "ผ่านขั้นจองงบ (ใช้ใบจองเดิม)"],
+    ["pr", "create_sarabun", "Create Sarabun → ฟื้นหนังสือเดิม เลขเดิม"],
+    ["prd", "send", "ส่งหนังสือ → พ.1 sent"],
+    ["prd", "complete", "หนังสืออนุมัติ → ปลุก พจ.1 เดิมกลับเป็น draft"]] },
+  { name: "หนังสือ พจ.1 ถูกตีกลับ", steps: [...PA_SENT,
+    ["pad", "return", "ตีกลับหนังสือ พจ.1 → พจ.1 สารบรรณตีกลับ (พ.1 ไม่เปลี่ยน)"],
+    ["pad", "resend", "ส่งใหม่ → พจ.1 รออนุมัติ"],
+    ["pad", "complete", "อนุมัติ → พจ.1 approved, พ.1 in_progress"]] },
+  { name: "พจ.1 ไม่ใช้ PO", ctx: { usePO: false }, steps: [...PA_SENT,
+    ["pad", "complete", "หนังสือ พจ.1 อนุมัติ (no_po) → พ.1 done ทันที ไม่มี PO"]] },
+  { name: "หนังสือ พจ.1 ไม่อนุมัติ", steps: [...PA_SENT,
+    ["pad", "reject", "ปฏิเสธหนังสือ พจ.1 → พจ.1 rejected และ พ.1 rejected (ยกเลิกใบจองงบ)"]] },
+  { name: "e-GP (เกิน 100,000)", ctx: { cost: 200000, egpId: true }, steps: [...UPTO_BUDGET,
+    ["prd", "complete", "หนังสืออนุมัติ → พ.1 รอ e-GP (ไม่สร้าง พจ.1)"],
+    ["pr", "egp_in_progress", "กรอกเลขโครงการ e-GP → ระหว่างจัดซื้อจัดจ้าง"],
+    ["pr", "egp_po", "Create PO (e-GP) → PO ร่าง, พ.1 done"]] },
+];
+const player = { sc: 0, i: 0, timer: null, speed: 1800 };
+let caption = "";
+
+function userFire(r) { stopPlay(); caption = ""; fire(r); }
+function stopPlay() { clearInterval(player.timer); player.timer = null; }
+function startScenario() {
+  const sc = SCENARIOS[player.sc];
+  history = []; st = { ...INIT_ST }; ctx = { ...INIT_CTX, ...(sc.ctx || {}) }; lastSteps = []; changed = new Set();
+  player.i = 0; caption = "▶ " + sc.name;
+  render();
+}
+function playStep() {
+  const sc = SCENARIOS[player.sc], s = sc.steps[player.i];
+  if (!s) { stopPlay(); caption = "✓ จบ: " + sc.name; render(); return; }
+  const [inst, key, cap] = s;
+  const t = tFor(inst, key, st[inst]), r = t && resolve(inst, t);
+  player.i++;
+  if (!r || !r.ok) { stopPlay(); caption = "⛔ " + (r ? r.reason : `${INST[inst].short} ไม่มี ${key} จาก ${st[inst]}`); render(); return; }
+  caption = `${player.i}/${sc.steps.length} · ${cap}`;
+  fire(r);
+}
+function togglePlay() {
+  if (player.timer) { stopPlay(); render(); return; }
+  if (player.i === 0 || player.i >= SCENARIOS[player.sc].steps.length) startScenario();
+  playStep();
+  player.timer = setInterval(playStep, player.speed);
+  render();
 }
 
 function eventCard(inst, t, r, detailed) {
@@ -634,7 +839,7 @@ function eventCard(inst, t, r, detailed) {
     ${casc ? `<div class="casc">${casc}</div>` : ""}
     ${detailed && t.effects.length ? `<ul class="fx">${t.effects.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : ""}
     ${detailed ? `<div class="ref">${t.ref}</div>` : ""}`;
-  b.addEventListener("click", () => fire(r));
+  b.addEventListener("click", () => userFire(r));
   return b;
 }
 
@@ -664,12 +869,23 @@ function logPanel() {
   return d;
 }
 
-let view = location.hash.slice(1) || "overview";
+function allEvents(side) {
+  side.insertAdjacentHTML("beforeend", `<h2>Events ที่ทำได้ทั้งหมด</h2><div class="hint">⚡ = เกิดจาก callback ของเอกสารอื่น — กดแล้วระบบจะไล่หา event ต้นเหตุให้</div>`);
+  for (const i of ORDER) {
+    const ts = mach(i).T.filter((t) => froms(t).includes(st[i]));
+    if (!ts.length) continue;
+    side.insertAdjacentHTML("beforeend", `<h3>${INST[i].short} <code>${st[i]}</code></h3>`);
+    const rs = ts.map((t) => [t, resolve(i, t)]).sort((a, b) => b[1].ok - a[1].ok);
+    for (const [t, r] of rs) side.appendChild(eventCard(i, t, r, false));
+  }
+}
+
+let view = location.hash.slice(1) || "unified";
 let vb = null;
-const opts = { showAll: true, showCancel: false };
+const opts = { showAll: true, showCancel: false, showSync: true, follow: true };
 
 function render(flash = false) {
-  if (!VIEWS.some((v) => v.id === view)) view = "overview";
+  if (!VIEWS.some((v) => v.id === view)) view = "unified";
   $("nav").innerHTML = VIEWS.map((v) => `<a href="#${v.id}" class="${v.id === view ? "on" : ""}">${v.label}${v.sub ? `<small>${v.sub}</small>` : ""}</a>`).join("");
   $("strip").innerHTML = ORDER.map((i) => `<div class="chip ${flash && changed.has(i) ? "changed" : ""}" data-i="${i}">
     <span class="dot" style="background:${INST[i].color}"></span>${INST[i].short} <code>${st[i]}</code></div>`).join("");
@@ -678,7 +894,35 @@ function render(flash = false) {
   const main = $("main"), side = $("side");
   side.innerHTML = "";
 
-  if (view === "overview") {
+  if (view === "unified") {
+    main.innerHTML = `<svg id="big"></svg>
+      <div class="player">
+        <select id="sc">${SCENARIOS.map((x, n) => `<option value="${n}" ${n === player.sc ? "selected" : ""}>${x.name}</option>`).join("")}</select>
+        <button class="btn" id="play">${player.timer ? "⏸ หยุด" : "▶ เล่น"}</button>
+        <button class="btn" id="stepb" ${player.timer ? "disabled" : ""}>⏭ ทีละขั้น</button>
+        <span class="prog">${player.i}/${SCENARIOS[player.sc].steps.length}</span>
+      </div>
+      <div class="caption">${esc(caption)}</div>
+      <div class="toolbar">
+        <label><input type="checkbox" id="showSync" ${opts.showSync ? "checked" : ""}> เส้นเชื่อมข้ามเอกสาร</label>
+        <label><input type="checkbox" id="showCancel" ${opts.showCancel ? "checked" : ""}> แสดงเส้นยกเลิก</label>
+        <label><input type="checkbox" id="follow" ${opts.follow ? "checked" : ""}> กล้องตาม</label>
+        <button class="btn" id="fit">พอดีจอ</button></div>`;
+    const svg = $("big");
+    drawUnified(svg, flash);
+    if (!vb || vb.inst !== "unified") fitView("unified"); else applyVB();
+    if (flash && opts.follow) follow();
+    $("sc").onchange = (e) => { stopPlay(); player.sc = +e.target.value; player.i = 0; startScenario(); };
+    $("play").onclick = togglePlay;
+    $("stepb").onclick = () => { if (player.i === 0 || player.i >= SCENARIOS[player.sc].steps.length) startScenario(); playStep(); };
+    $("showSync").onchange = (e) => { opts.showSync = e.target.checked; render(); };
+    $("showCancel").onchange = (e) => { opts.showCancel = e.target.checked; render(); };
+    $("follow").onchange = (e) => { opts.follow = e.target.checked; render(); };
+    $("fit").onclick = () => fitView("unified");
+    bindPanZoom(svg);
+    side.insertAdjacentHTML("beforeend", `<div class="note">แต่ละแถบคือเอกสาร 1 ตัว เรียงซ้าย→ขวาตามเวลา · เส้นประสีม่วง = event ที่ทำให้เอกสารอีกตัวขยับ (ม่วงวิ่ง = กดได้ตอนนี้, เขียว = เพิ่งเกิด) · เลือก scenario แล้วกด ▶ เพื่อดู flow</div>`);
+    allEvents(side);
+  } else if (view === "overview") {
     main.innerHTML = `<div class="grid">${ORDER.map((i, n) => `<div class="mini ${n === 0 ? "wide" : ""}">
       <div class="hd"><span><span class="dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${INST[i].color}"></span> ${INST[i].label}</span><a href="#${i}">เปิด →</a></div>
       <svg id="mini-${i}"></svg></div>`).join("")}</div>`;
@@ -687,14 +931,7 @@ function render(flash = false) {
       svg.setAttribute("viewBox", `${b.x} ${b.y} ${b.x2 - b.x} ${b.y2 - b.y}`);
       drawGraph(svg, i, { labels: false, showAll: true, showCancel: false, flash });
     }
-    side.insertAdjacentHTML("beforeend", `<h2>Events ที่ทำได้ทั้งหมด</h2><div class="hint">⚡ = เกิดจาก callback ของเอกสารอื่น — กดแล้วระบบจะไล่หา event ต้นเหตุให้</div>`);
-    for (const i of ORDER) {
-      const ts = mach(i).T.filter((t) => froms(t).includes(st[i]));
-      if (!ts.length) continue;
-      side.insertAdjacentHTML("beforeend", `<h3>${INST[i].short} <code>${st[i]}</code></h3>`);
-      const rs = ts.map((t) => [t, resolve(i, t)]).sort((a, b) => b[1].ok - a[1].ok);
-      for (const [t, r] of rs) side.appendChild(eventCard(i, t, r, false));
-    }
+    allEvents(side);
     side.insertAdjacentHTML("beforeend", `<h2>หมายเหตุ</h2><div class="note"><ul>
       <li>สถานะ PO ไม่ย้อนกลับไปที่ พ.1 / พจ.1 — พ.1 เป็น done ตั้งแต่สร้าง PO</li>
       <li>ไม่ได้จำลอง: admin reset หนังสือ (agx_sarabun_reset), ใบขอเบิก/ตรวจรับ (DR/WA), ทำสำเนาหนังสือที่ถูกปฏิเสธ</li>
@@ -729,7 +966,8 @@ function render(flash = false) {
 // pan / zoom for the single-model view
 function applyVB() { $("big") && $("big").setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`); }
 function fitView(inst) {
-  const b = bounds(mach(inst).S), svg = $("big");
+  const b = inst === "unified" ? { x: LANE_X - 20, y: -20, x2: LANE_X2 + 20, y2: LANE_TOP.po + LANE_H + 20 } : bounds(mach(inst).S);
+  const svg = $("big");
   const r = svg.clientWidth / svg.clientHeight || 2;
   let w = b.x2 - b.x, h = b.y2 - b.y;
   vb = w / h < r ? { inst, x: b.x - (h * r - w) / 2, y: b.y, w: h * r, h } : { inst, x: b.x, y: b.y - (w / r - h) / 2, w, h: w / r };
@@ -753,7 +991,7 @@ window.addEventListener("mousemove", (e) => {
   vb.x = drag.v.x - (e.clientX - drag.x) * s; vb.y = drag.v.y - (e.clientY - drag.y) * s;
   applyVB();
 });
-window.addEventListener("hashchange", () => { view = location.hash.slice(1) || "overview"; render(); });
+window.addEventListener("hashchange", () => { view = location.hash.slice(1) || "unified"; render(); });
 window.addEventListener("resize", () => { if (view !== "overview") fitView(view); });
 document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); undo(); } });
 $("undo").onclick = undo;
