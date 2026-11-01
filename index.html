@@ -38,7 +38,7 @@
   @keyframes pulse { from { box-shadow: 0 0 0 4px #3dd6a366; } to { box-shadow: none; } }
   .layout { flex: 1; display: grid; grid-template-columns: 1fr 400px; min-height: 0; }
   #main { position: relative; overflow: hidden; min-height: 0; }
-  #main > svg { width: 100%; height: 100%; display: block; cursor: grab; }
+  #main > svg { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
   #main > svg.dragging { cursor: grabbing; }
   .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; padding: 10px; height: 100%; overflow-y: auto; }
   .mini { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; display: flex;
@@ -134,6 +134,32 @@
     background: #1d2c52ee; border: 1px solid var(--accent); border-radius: 10px; padding: 10px 16px;
     font-size: 15px; text-align: center; pointer-events: none; }
   .caption:empty { display: none; }
+
+  /* ---- mobile ---- */
+  @media (max-width: 820px) {
+    body { height: auto; min-height: 100vh; display: block; }
+    header { flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
+    header h1, header .spacer { display: none; }
+    #undo { margin-left: auto; }
+    nav { order: 3; flex: 0 0 100%; min-width: 0; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    html, body { overflow-x: hidden; }
+    nav a small { display: none; }
+    .strip { position: sticky; top: 0; z-index: 5; padding: 6px 10px; }
+    .layout { display: block; }
+    #main { height: 64vh; border-bottom: 1px solid var(--border); }
+    #main.auto { height: auto; }
+    aside { border-left: 0; overflow: visible; padding: 12px; }
+    .grid { grid-template-columns: 1fr; height: auto; padding: 8px; }
+    .mini, .mini.wide { grid-column: span 1; min-height: 230px; }
+    .player { left: 8px; right: 8px; top: 8px; padding: 5px; gap: 6px; }
+    .player select { flex: 1; min-width: 0; font-size: 13px; }
+    .player .lbl, .player .prog { display: none; }
+    .caption { top: 58px; max-width: 94%; width: max-content; font-size: 13px; padding: 7px 12px; }
+    .toolbar { left: 8px; right: 8px; bottom: 8px; flex-wrap: wrap; gap: 6px; }
+    .toolbar label { padding: 4px 8px; }
+    button.btn { padding: 6px 10px; }
+    .event { padding: 10px 12px; }
+  }
   @keyframes flash { from { filter: drop-shadow(0 0 14px var(--accent2)); } to { filter: none; } }
 </style>
 </head>
@@ -721,15 +747,33 @@ function drawUnified(svg, flash) {
 }
 
 // Camera follows whatever just moved.
-function follow() {
-  if (!lastSteps.length) return;
-  const pts = lastSteps.flatMap((s) => [upos(s.inst)(s.from), upos(s.inst)(s.to)]);
-  const x1 = Math.min(...pts.map((p) => p.x)) - 300, x2 = Math.max(...pts.map((p) => p.x)) + 300;
-  const y1 = Math.min(...pts.map((p) => p.y)) - 200, y2 = Math.max(...pts.map((p) => p.y)) + 200;
+const isMobile = () => matchMedia("(max-width: 820px)").matches;
+
+// Frame a set of points; phones get a closer minimum zoom so labels stay readable.
+function frame(pts, animate) {
+  cancelAnimationFrame(anim);
+  const m = isMobile(), px = m ? 130 : 300, py = m ? 120 : 200;
+  const x1 = Math.min(...pts.map((p) => p.x)) - px, x2 = Math.max(...pts.map((p) => p.x)) + px;
+  const y1 = Math.min(...pts.map((p) => p.y)) - py, y2 = Math.max(...pts.map((p) => p.y)) + py;
   const svg = $("big"), r = svg.clientWidth / svg.clientHeight || 2;
-  let w = Math.max(x2 - x1, 1500), h = Math.max(y2 - y1, w / r);
+  let w = Math.max(x2 - x1, m ? 520 : 1500), h = Math.max(y2 - y1, w / r);
   w = Math.max(w, h * r);
-  animateVB({ inst: "unified", x: (x1 + x2) / 2 - w / 2, y: (y1 + y2) / 2 - h / 2, w, h });
+  const to = { inst: view, x: (x1 + x2) / 2 - w / 2, y: (y1 + y2) / 2 - h / 2, w, h };
+  if (animate && vb) animateVB(to); else { vb = to; applyVB(); }
+}
+
+// Unified view: whatever just moved, else the พ.1's current state.
+function follow(animate = true) {
+  frame(lastSteps.length ? lastSteps.flatMap((s) => [upos(s.inst)(s.from), upos(s.inst)(s.to)])
+    : [upos("pr")(st.pr)], animate);
+}
+
+// Single-model view: the current state and its nearby next states, so text stays readable.
+function focusCurrent(inst, animate) {
+  const S = mach(inst).S, c = S[st[inst]];
+  const near = mach(inst).T.filter((t) => froms(t).includes(st[inst]) && !t.cancel).map((t) => S[t.to])
+    .filter((p) => Math.abs(p.x - c.x) <= 320 && Math.abs(p.y - c.y) <= 260);
+  frame([c, ...near], animate);
 }
 let anim = null;
 function animateVB(to) {
@@ -892,14 +936,15 @@ function render(flash = false) {
   $("strip").querySelectorAll(".chip").forEach((c) => c.addEventListener("click", () => (location.hash = c.dataset.i)));
   $("undo").disabled = !history.length;
   const main = $("main"), side = $("side");
+  main.classList.toggle("auto", view === "overview");
   side.innerHTML = "";
 
   if (view === "unified") {
     main.innerHTML = `<svg id="big"></svg>
       <div class="player">
         <select id="sc">${SCENARIOS.map((x, n) => `<option value="${n}" ${n === player.sc ? "selected" : ""}>${x.name}</option>`).join("")}</select>
-        <button class="btn" id="play">${player.timer ? "⏸ หยุด" : "▶ เล่น"}</button>
-        <button class="btn" id="stepb" ${player.timer ? "disabled" : ""}>⏭ ทีละขั้น</button>
+        <button class="btn" id="play">${player.timer ? "⏸<span class=\"lbl\"> หยุด</span>" : "▶<span class=\"lbl\"> เล่น</span>"}</button>
+        <button class="btn" id="stepb" ${player.timer ? "disabled" : ""}>⏭<span class="lbl"> ทีละขั้น</span></button>
         <span class="prog">${player.i}/${SCENARIOS[player.sc].steps.length}</span>
       </div>
       <div class="caption">${esc(caption)}</div>
@@ -910,7 +955,7 @@ function render(flash = false) {
         <button class="btn" id="fit">พอดีจอ</button></div>`;
     const svg = $("big");
     drawUnified(svg, flash);
-    if (!vb || vb.inst !== "unified") fitView("unified"); else applyVB();
+    if (!vb || vb.inst !== "unified") (isMobile() ? follow(false) : fitView("unified")); else applyVB();
     if (flash && opts.follow) follow();
     $("sc").onchange = (e) => { stopPlay(); player.sc = +e.target.value; player.i = 0; startScenario(); };
     $("play").onclick = togglePlay;
@@ -944,7 +989,8 @@ function render(flash = false) {
       <button class="btn" id="fit">พอดีจอ</button></div>`;
     const svg = $("big");
     drawGraph(svg, inst, { labels: true, ...opts, flash });
-    if (!vb || vb.inst !== inst) fitView(inst); else applyVB();
+    if (!vb || vb.inst !== inst) (isMobile() ? focusCurrent(inst, false) : fitView(inst)); else applyVB();
+    if (flash && isMobile()) focusCurrent(inst, true);
     $("showAll").onchange = (e) => { opts.showAll = e.target.checked; render(); };
     $("showCancel").onchange = (e) => { opts.showCancel = e.target.checked; render(); };
     $("fit").onclick = () => { fitView(inst); };
@@ -966,6 +1012,7 @@ function render(flash = false) {
 // pan / zoom for the single-model view
 function applyVB() { $("big") && $("big").setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`); }
 function fitView(inst) {
+  cancelAnimationFrame(anim);
   const b = inst === "unified" ? { x: LANE_X - 20, y: -20, x2: LANE_X2 + 20, y2: LANE_TOP.po + LANE_H + 20 } : bounds(mach(inst).S);
   const svg = $("big");
   const r = svg.clientWidth / svg.clientHeight || 2;
@@ -973,9 +1020,29 @@ function fitView(inst) {
   vb = w / h < r ? { inst, x: b.x - (h * r - w) / 2, y: b.y, w: h * r, h } : { inst, x: b.x, y: b.y - (w / r - h) / 2, w, h: w / r };
   applyVB();
 }
-let drag = null;
+const ptrs = new Map();
+let gesture = null;
+const centre = (p) => ({ x: p.reduce((a, q) => a + q.x, 0) / p.length, y: p.reduce((a, q) => a + q.y, 0) / p.length });
+const spread = (p) => (p.length > 1 ? Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) : 0);
+function startGesture(svg) {
+  const p = [...ptrs.values()];
+  gesture = p.length ? { v: { ...vb }, c: centre(p), d: spread(p) } : null;
+  svg.classList.toggle("dragging", !!p.length);
+}
 function bindPanZoom(svg) {
-  svg.onmousedown = (e) => { drag = { x: e.clientX, y: e.clientY, v: { ...vb } }; svg.classList.add("dragging"); };
+  svg.onpointerdown = (e) => { ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); startGesture(svg); };
+  svg.onpointermove = (e) => {
+    if (!ptrs.has(e.pointerId) || !gesture) return;
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    cancelAnimationFrame(anim);
+    const p = [...ptrs.values()], r = svg.getBoundingClientRect(), g = gesture, c = centre(p);
+    const f = p.length > 1 && g.d ? g.d / spread(p) : 1;
+    const gx = g.v.x + ((g.c.x - r.left) / r.width) * g.v.w, gy = g.v.y + ((g.c.y - r.top) / r.height) * g.v.h;
+    const w = g.v.w * f, h = g.v.h * f;
+    vb = { inst: vb.inst, x: gx - ((c.x - r.left) / r.width) * w, y: gy - ((c.y - r.top) / r.height) * h, w, h };
+    applyVB();
+  };
+  svg.onpointerup = svg.onpointercancel = svg.onpointerleave = (e) => { ptrs.delete(e.pointerId); startGesture(svg); };
   svg.onwheel = (e) => {
     e.preventDefault();
     const f = Math.exp(e.deltaY * 0.0015), r = svg.getBoundingClientRect();
@@ -984,15 +1051,8 @@ function bindPanZoom(svg) {
     applyVB();
   };
 }
-window.addEventListener("mouseup", () => { drag = null; $("big") && $("big").classList.remove("dragging"); });
-window.addEventListener("mousemove", (e) => {
-  if (!drag || !$("big")) return;
-  const s = vb.w / $("big").clientWidth;
-  vb.x = drag.v.x - (e.clientX - drag.x) * s; vb.y = drag.v.y - (e.clientY - drag.y) * s;
-  applyVB();
-});
 window.addEventListener("hashchange", () => { view = location.hash.slice(1) || "unified"; render(); });
-window.addEventListener("resize", () => { if (view !== "overview") fitView(view); });
+window.addEventListener("resize", () => { if (view !== "overview" && !isMobile()) fitView(view); });
 document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); undo(); } });
 $("undo").onclick = undo;
 $("reset").onclick = reset;
