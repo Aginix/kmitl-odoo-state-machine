@@ -2,12 +2,763 @@
 <html lang="th">
 <head>
 <meta charset="utf-8" />
-<meta http-equiv="refresh" content="0; url=purchase_request.html" />
-<title>KMITL Odoo State Machines</title>
+<title>KMITL Odoo — State Machine Simulator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --border: #2a2f3a;
+    --text: #e6e8ee; --muted: #8b93a7; --accent: #5b8cff; --accent2: #3dd6a3;
+    --warn: #ffb547; --danger: #ff6b6b; --edge: #3a4152;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column;
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", "Sarabun", "Noto Sans Thai", sans-serif; }
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 18px;
+    border-bottom: 1px solid var(--border); background: var(--panel); }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; white-space: nowrap; }
+  header .spacer { flex: 1; }
+  nav { display: flex; gap: 4px; flex-wrap: wrap; }
+  nav a { color: var(--muted); text-decoration: none; padding: 6px 12px; border-radius: 6px; font-size: 13px;
+    border: 1px solid transparent; white-space: nowrap; }
+  nav a:hover { color: var(--text); background: var(--panel2); }
+  nav a.on { color: var(--text); background: #1d2c52; border-color: var(--accent); }
+  nav a small { color: var(--muted); font-family: ui-monospace, Menlo, monospace; font-size: 11px; margin-left: 4px; }
+  button.btn { background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit; }
+  button.btn:hover:not(:disabled) { border-color: var(--accent); }
+  button.btn:disabled { opacity: .4; cursor: not-allowed; }
+  .strip { display: flex; gap: 8px; padding: 8px 18px; border-bottom: 1px solid var(--border);
+    background: #13161c; overflow-x: auto; }
+  .chip { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 99px;
+    background: var(--panel2); border: 1px solid var(--border); cursor: pointer; white-space: nowrap; font-size: 12px; }
+  .chip:hover { border-color: var(--accent); }
+  .chip .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .chip code { color: var(--accent2); font-size: 12px; }
+  .chip.changed { animation: pulse 1s ease-out; }
+  @keyframes pulse { from { box-shadow: 0 0 0 4px #3dd6a366; } to { box-shadow: none; } }
+  .layout { flex: 1; display: grid; grid-template-columns: 1fr 400px; min-height: 0; }
+  #main { position: relative; overflow: hidden; min-height: 0; }
+  #main > svg { width: 100%; height: 100%; display: block; cursor: grab; }
+  #main > svg.dragging { cursor: grabbing; }
+  .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; padding: 10px; height: 100%; overflow-y: auto; }
+  .mini { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; display: flex;
+    flex-direction: column; min-height: 260px; grid-column: span 3; }
+  .mini.wide { grid-column: span 6; min-height: 340px; }
+  .mini .hd { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px;
+    border-bottom: 1px solid var(--border); font-size: 13px; }
+  .mini .hd a { color: var(--accent); text-decoration: none; font-size: 12px; }
+  .mini svg { flex: 1; width: 100%; min-height: 0; }
+  aside { border-left: 1px solid var(--border); background: var(--panel); overflow-y: auto; padding: 14px 16px; }
+  aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+    margin: 18px 0 8px; font-weight: 600; }
+  aside h2:first-child { margin-top: 0; }
+  aside h3 { font-size: 13px; margin: 14px 0 6px; display: flex; justify-content: space-between; }
+  aside h3 code { color: var(--accent2); font-weight: 400; }
+  .current { background: var(--panel2); border: 1px solid var(--accent); border-radius: 8px; padding: 12px; }
+  .current .key { font-family: ui-monospace, Menlo, monospace; color: var(--accent2); font-size: 13px; }
+  .current .name { font-size: 18px; font-weight: 600; margin: 2px 0 6px; }
+  .current .desc { color: var(--muted); font-size: 13px; }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .tag { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: #262b36; color: var(--muted); }
+  .tag.ok { background: #143b2f; color: var(--accent2); }
+  .tag.final { background: #3a1d22; color: var(--danger); }
+  .event { display: block; width: 100%; text-align: left; margin-bottom: 8px; padding: 9px 12px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    cursor: pointer; font: inherit; }
+  .event:hover:not(.blocked) { border-color: var(--accent); background: #222a3a; }
+  .event.blocked { opacity: .55; cursor: not-allowed; }
+  .event .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .event .label { font-weight: 600; }
+  .event .to { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--accent2); white-space: nowrap; }
+  .event .meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .event .meta code { color: #c3b5ff; }
+  .event .guard { font-size: 12px; margin-top: 4px; color: var(--warn); }
+  .event .guard.pass { color: var(--accent2); }
+  .event .fx { font-size: 12px; margin: 4px 0 0; padding-left: 16px; color: #aab3c5; }
+  .event .casc { font-size: 12px; margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: #151a24;
+    border-left: 2px solid #c084fc; color: #cfd5e3; }
+  .event .casc div { margin: 1px 0; }
+  .event .casc code { color: var(--accent2); }
+  .event .ref { font-size: 11px; color: #6a7286; margin-top: 4px; font-family: ui-monospace, Menlo, monospace; word-break: break-all; }
+  .actor { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 4px; margin-right: 6px; }
+  .ctx label { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 6px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+  .ctx input[type=number] { width: 120px; background: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+  .ctx code { color: #c3b5ff; font-size: 12px; }
+  .hint { font-size: 12px; color: var(--muted); }
+  ol.log { padding-left: 20px; margin: 0; font-size: 12px; }
+  ol.log li { margin-bottom: 6px; color: var(--muted); }
+  ol.log li b { color: var(--text); font-weight: 500; }
+  ol.log code { color: var(--accent2); }
+  .note { font-size: 12px; color: var(--muted); background: #151a24; border-radius: 8px; padding: 10px 12px; }
+  .note li { margin-bottom: 3px; }
+  .toolbar { position: absolute; left: 16px; bottom: 16px; display: flex; gap: 8px; align-items: center; }
+  .toolbar label { font-size: 12px; color: var(--muted); background: var(--panel); padding: 6px 10px;
+    border: 1px solid var(--border); border-radius: 6px; }
+  /* svg */
+  .node rect.box { fill: var(--panel2); stroke: var(--border); stroke-width: 1.5; transition: all .2s; }
+  .node text.k { fill: var(--muted); font: 11px ui-monospace, Menlo, monospace; }
+  .node text.n { fill: var(--text); font-size: 14px; font-weight: 600; }
+  .node.final rect.box { stroke-width: 3; stroke: #4a3036; }
+  .node.ghost rect.box { stroke-dasharray: 5 4; fill: transparent; }
+  .node.reachable rect.box { stroke: #4b6bbf; cursor: pointer; }
+  .node.reachable:hover rect.box { fill: #24304a; }
+  .node.active rect.box { fill: #1d2c52; stroke: var(--accent); stroke-width: 2.5; filter: url(#glow); }
+  .node.visited:not(.active) rect.box { stroke: #35506e; }
+  path.edge { fill: none; stroke: var(--edge); stroke-width: 1.4; opacity: .55; transition: all .2s; }
+  path.edge.out { stroke: var(--accent); stroke-width: 2.2; opacity: 1; }
+  path.edge.out.blocked { stroke: var(--warn); stroke-dasharray: 5 4; opacity: .8; }
+  path.edge.taken { stroke: var(--accent2); stroke-width: 2.4; opacity: 1; }
+  path.edge.dim { opacity: .3; }
+  g.elabel { cursor: pointer; }
+  g.elabel rect { fill: #233056; stroke: var(--accent); }
+  g.elabel.blocked rect { fill: #3a2f1b; stroke: var(--warn); }
+  g.elabel.driven rect { stroke: #c084fc; }
+  g.elabel text { fill: var(--text); font-size: 11.5px; }
+  g.elabel:hover rect { fill: #2f4280; }
+  .flash { animation: flash .6s ease-out; }
+  @keyframes flash { from { filter: drop-shadow(0 0 14px var(--accent2)); } to { filter: none; } }
+</style>
 </head>
 <body>
-<ul>
-  <li><a href="purchase_request.html">purchase.request (พ.1)</a></li>
-</ul>
+<header>
+  <h1>KMITL state machines</h1>
+  <nav id="nav"></nav>
+  <div class="spacer"></div>
+  <button class="btn" id="undo" title="Ctrl+Z">↶ ย้อนกลับ</button>
+  <button class="btn" id="reset">⟲ เริ่มใหม่</button>
+</header>
+<div class="strip" id="strip"></div>
+<div class="layout">
+  <div id="main"></div>
+  <aside id="side"></aside>
+</div>
+
+<script>
+// ===========================================================================
+// Model — mapped by hand from the KMITL addons (16.0). Each transition has a
+// `key`; CASCADE wires keys across instances (callbacks / direct writes), so
+// firing one event moves every affected document at once.
+// ===========================================================================
+const ACTORS = {
+  requester: { th: "ผู้ขอ", c: "#5b8cff" },
+  verifier:  { th: "ผู้ตรวจสอบ พ.1", c: "#5b8cff" },
+  budget:    { th: "ผู้จองงบประมาณ", c: "#5b8cff" },
+  manager:   { th: "ผู้จัดการ", c: "#5b8cff" },
+  officer:   { th: "เจ้าหน้าที่พัสดุ", c: "#5b8cff" },
+  sender:    { th: "ผู้ส่งหนังสือ", c: "#5b8cff" },
+  approver:  { th: "ผู้พิจารณาในเส้นทาง", c: "#5b8cff" },
+  disb:      { th: "เจ้าหน้าที่เบิกจ่าย", c: "#5b8cff" },
+  sarabun:   { th: "สารบรรณ (callback)", c: "#c084fc" },
+  pa:        { th: "พจ.1 (ระบบ)", c: "#f472b6" },
+  system:    { th: "ระบบ", c: "#c084fc" },
+};
+
+const W = 182, H = 58;
+const ALL_PR = ["draft", "to_verify", "to_verify_budget", "to_approve", "sent", "returned", "in_approval", "in_progress"];
+
+const M = {
+  // ------------------------------------------------------------------ พ.1
+  pr: {
+    model: "purchase.request",
+    S: {
+      draft:            { th: "ร่าง", x: 90, y: 170, initial: true, editable: true, desc: "ผู้ขอกรอกรายการ งบประมาณ และเอกสารแนบ" },
+      to_verify:        { th: "รอตรวจสอบ", x: 320, y: 170, editable: true, desc: "ผู้ตรวจสอบ พ.1 ตรวจความถูกต้อง" },
+      to_verify_budget: { th: "รอจองงบประมาณ", x: 550, y: 170, desc: "เจ้าหน้าที่งบจองงบ — สร้างใบจองใหม่ หรือตัดจากใบจองเดิม / โครงการ / แผน" },
+      to_approve:       { th: "รอสร้างหนังสือ", x: 780, y: 170, desc: "จองงบแล้ว รอสร้างและส่งหนังสือสารบรรณ" },
+      sent:             { th: "ส่งสารบรรณแล้ว", x: 1010, y: 170, desc: "หนังสือของ พ.1 เวียนอยู่ในสารบรรณ" },
+      returned:         { th: "ถูกตีกลับ (สารบรรณ)", x: 1010, y: 380, editable: true, desc: "สารบรรณตีกลับ แก้แล้วส่งหนังสือใหม่" },
+      in_egp:           { th: "รอ e-GP", x: 1250, y: 50, desc: "ยอด > 100,000 — ไม่สร้าง พจ.1, รอเลขที่โครงการ e-GP" },
+      in_approval:      { th: "ขออนุมัติ (พจ.1)", x: 1250, y: 270, desc: "สร้าง พจ.1 อัตโนมัติ รอ พจ.1 อนุมัติ" },
+      in_progress:      { th: "ระหว่างจัดซื้อจัดจ้าง", x: 1490, y: 170, desc: "รอสร้างใบสั่งซื้อ (PO)" },
+      done:             { th: "เสร็จสิ้น", x: 1490, y: 380, final: true, desc: "สร้าง PO แล้ว / พจ.1 ไม่ใช้ PO — สถานะ PO หลังจากนี้ไม่ย้อนกลับมาที่ พ.1" },
+      rejected:         { th: "ไม่อนุมัติ", x: 1250, y: 500, final: true, desc: "ยกเลิก line และใบจองงบ" },
+      cancelled:        { th: "ยกเลิก", x: 660, y: 500, final: true, desc: "ยกเลิกพร้อมเหตุผล — ใบจองงบถูกยกเลิก" },
+    },
+    T: [
+      { key: "request", from: "draft", to: "to_verify", label: "ขออนุมัติ", actor: "requester",
+        effects: ["ตรวจ exception", "ตั้ง date_start"], ref: "purchase_request_kmitl/models/purchase_request.py:215" },
+      { key: "verify", from: "to_verify", to: "to_verify_budget", label: "ตรวจสอบ", actor: "verifier",
+        effects: ["บันทึก verified_by"], ref: "purchase_request_budget/models/purchase_request.py:343" },
+      { key: "return_draft", from: "to_verify", to: "draft", label: "ตีกลับ", actor: "verifier",
+        effects: ["wizard ใส่เหตุผล → button_draft"], ref: "purchase_request_kmitl/models/purchase_request.py:354" },
+      { key: "reset", from: "to_verify", to: "draft", label: "ดึงกลับ (Reset)", actor: "requester",
+        effects: ["ผู้ขอเอง หรือ manager"], ref: "purchase_request_kmitl/models/purchase_request.py:266" },
+      { key: "reserve", from: "to_verify_budget", to: "to_approve", label: "จองงบประมาณ", actor: "budget",
+        effects: ["สร้าง/ตัด budget.commitment (หรือใช้ใบจองเดิมถ้ามีอยู่แล้ว)"], set: { reserved: true },
+        ref: "purchase_request_budget/models/purchase_request.py:418" },
+      { key: "return_verify", from: "to_verify_budget", to: "to_verify", label: "ตีกลับ", actor: "budget",
+        effects: ["ถอยทีละขั้น ไม่ยกเลิกใบจอง"], ref: "purchase_request_budget/models/purchase_request.py:376" },
+      { key: "recall", from: "to_verify_budget", to: "to_verify", label: "ดึงกลับ", actor: "verifier",
+        guard: (c) => c.reserved ? "จองงบแล้ว ดึงกลับไม่ได้" : null, guardText: "ยังไม่ได้จองงบ",
+        effects: [], ref: "purchase_request_budget/models/purchase_request.py:395" },
+      { key: "create_sarabun", from: "to_approve", to: "to_approve", label: "Create Sarabun", actor: "requester",
+        guardText: "ยังไม่มีหนังสือที่ live", effects: ["สร้าง sarabun.document (draft)", "ถ้ามี พจ.1 ค้าง pending_pr → ฟื้นหนังสือเดิม (เลขเดิม)"],
+        ref: "purchase_request_approval/models/purchase_request.py:55" },
+      { key: "reset", from: "to_approve", to: "draft", label: "ดึงกลับ (Reset)", actor: "manager",
+        effects: ["ยกเลิกใบจองงบ (ยกเว้น bridge โครงการ/แผน)"], set: { reserved: false },
+        ref: "purchase_request_budget/models/purchase_request.py:655" },
+      { key: "sb_circulating", from: "to_approve", to: "sent", label: "หนังสือเริ่มเวียน", actor: "sarabun", driven: true,
+        effects: ["_on_sarabun_circulating"], ref: "purchase_request_sarabun/models/purchase_request.py:50" },
+      { key: "sb_circulating", from: "returned", to: "sent", label: "ส่งหนังสือใหม่", actor: "sarabun", driven: true,
+        effects: ["action_resend_to_sarabun → action_send"], ref: "purchase_request_sarabun/models/purchase_request.py:69" },
+      { key: "sb_ok_egp", from: "sent", to: "in_egp", label: "หนังสืออนุมัติ [e-GP]", actor: "sarabun", driven: true,
+        guard: (c) => c.cost > 100000 ? null : "ยอด ≤ 100,000", guardText: "is_egp",
+        effects: ["egp_status = waiting", "ไม่สร้าง พจ.1"], ref: "purchase_request_egp/models/purchase_request.py:68" },
+      { key: "sb_ok", from: "sent", to: "in_approval", label: "หนังสืออนุมัติ", actor: "sarabun", driven: true,
+        guard: (c) => c.cost > 100000 ? "ยอด > 100,000 (e-GP)" : null, guardText: "not is_egp",
+        effects: ["สร้าง พจ.1 อัตโนมัติ / ปลุก พจ.1 ที่ค้าง pending_pr"], ref: "purchase_request_approval/models/purchase_request.py:109" },
+      { key: "sb_returned", from: "sent", to: "returned", label: "หนังสือถูกตีกลับ", actor: "sarabun", driven: true,
+        effects: [], ref: "purchase_request_sarabun/models/purchase_request.py:65" },
+      { key: "sb_rejected", from: "sent", to: "rejected", label: "หนังสือไม่อนุมัติ", actor: "sarabun", driven: true,
+        effects: ["button_rejected", "ยกเลิกใบจองงบ"], set: { reserved: false }, ref: "purchase_request_sarabun/models/purchase_request.py:61" },
+      { key: "sb_cancelled", from: "sent", to: "cancelled", label: "ยกเลิกการส่งหนังสือ", actor: "sarabun", driven: true, cancel: true,
+        effects: [], set: { reserved: false }, ref: "purchase_request_sarabun/models/purchase_request.py:75" },
+      { key: "egp_in_progress", from: "in_egp", to: "in_progress", label: "อยู่ในกระบวนการ e-GP", actor: "officer",
+        guard: (c) => c.egpId ? null : "ยังไม่กรอกเลขที่โครงการ e-GP", guardText: "มี egp_project_id",
+        effects: ["egp_status = in_progress"], ref: "purchase_request_egp/models/purchase_request.py:107" },
+      { key: "pa_ok", from: "in_approval", to: "in_progress", label: "พจ.1 อนุมัติ", actor: "pa", driven: true,
+        guard: (c) => c.usePO ? null : "พจ.1 แบบไม่ใช้ PO", guardText: "contract_mode = with_po",
+        effects: ["schedule activity สร้าง PO"], ref: "purchase_request_approval/models/purchase_request_approval.py:446" },
+      { key: "pa_ok_nopo", from: "in_approval", to: "done", label: "พจ.1 อนุมัติ [ไม่ใช้ PO]", actor: "pa", driven: true,
+        guard: (c) => c.usePO ? "พจ.1 แบบใช้ PO" : null, guardText: "contract_mode = no_po",
+        effects: ["button_done ทันที"], ref: "purchase_request_approval_disbursement/models/purchase_request_approval.py:121" },
+      { key: "pa_revise", from: "in_approval", to: "to_verify", label: "พจ.1 ตีกลับ/แก้ไข", actor: "pa", driven: true,
+        effects: ["ใบจองงบยังอยู่", "หนังสือของ พ.1 ถูก cancel (เก็บเลข)"], ref: "purchase_request_approval/models/purchase_request_approval.py:548" },
+      { key: "pa_rejected", from: "in_approval", to: "rejected", label: "พจ.1 ไม่อนุมัติ", actor: "pa", driven: true,
+        effects: ["button_rejected", "ยกเลิกใบจองงบ"], set: { reserved: false }, ref: "purchase_request_approval/models/purchase_request_approval.py:493" },
+      { key: "pa_cancelled", from: "in_approval", to: "cancelled", label: "พจ.1 ยกเลิก", actor: "pa", driven: true, cancel: true,
+        effects: ["เขียน state ตรง ๆ"], ref: "purchase_request_approval/models/purchase_request_approval.py:477" },
+      { key: "make_po", from: "in_progress", to: "done", label: "สร้าง PO จาก พจ.1", actor: "officer",
+        guard: (c) => c.cost > 100000 ? "e-GP ใช้ Create PO ของ e-GP" : null, guardText: "not is_egp",
+        effects: ["wizard make PO ด้วยผู้ขาย/VAT จาก พจ.1", "PR → done ทันทีที่สร้าง PO"], ref: "purchase_request_approval/models/purchase_request.py:336" },
+      { key: "egp_po", from: "in_progress", to: "done", label: "Create PO (e-GP)", actor: "officer",
+        guard: (c) => c.cost > 100000 ? null : "ไม่ใช่ e-GP", guardText: "is_egp, egp_status = in_progress",
+        effects: ["PO = draft", "button_done"], ref: "purchase_request_egp/wizard/purchase_request_line_make_purchase_order.py:7" },
+      { key: "cancel", from: ALL_PR, to: "cancelled", label: "ยกเลิก", actor: "officer", cancel: true,
+        effects: ["wizard บังคับใส่เหตุผล", "ยกเลิกใบจองงบ (ถ้ามี)"], set: { reserved: false },
+        ref: "purchase_request_kmitl/models/purchase_request.py:313" },
+    ],
+  },
+
+  // ------------------------------------------------------- sarabun.document
+  doc: {
+    model: "sarabun.document",
+    S: {
+      none:        { th: "ยังไม่มีหนังสือ", x: 90, y: 200, initial: true, ghost: true, desc: "ต้นเรื่องยังไม่ได้กด Create Sarabun" },
+      draft:       { th: "ร่าง", x: 330, y: 200, editable: true, desc: "แก้เนื้อหา/เส้นทาง แล้วกดส่ง" },
+      circulating: { th: "กำลังดำเนินการ", x: 600, y: 200, desc: "เวียนตามเส้นทาง — ผู้พิจารณากด Act on My Step" },
+      completed:   { th: "เสร็จสิ้น", x: 880, y: 50, final: true, desc: "ผ่านครบทุก stage, ออกเลข, เก็บ PDF ที่ลงนามแล้ว" },
+      returned:    { th: "รอแก้ไขเอกสาร", x: 600, y: 420, editable: true, desc: "ถูกตีกลับ/ดึงกลับ — เก็บเลขเดิม เริ่มเส้นทางรอบใหม่" },
+      rejected:    { th: "ปฏิเสธ", x: 880, y: 220, final: true, desc: "เลขถูก void" },
+      cancelled:   { th: "ยกเลิก", x: 880, y: 420, final: true, desc: "เลขถูก void (ยกเว้นยกเลิกโดย พจ.1 ตีกลับ ซึ่งเก็บเลขไว้ฟื้น)" },
+    },
+    T: [
+      { key: "create", from: "none", to: "draft", label: "สร้างหนังสือ", actor: "system", driven: true,
+        effects: ["action_submit_to_sarabun ของต้นเรื่อง", "แนบเอกสารของต้นเรื่อง"], ref: "agx_sarabun/models/sarabun_document_mixin.py:188" },
+      { key: "resume", from: "cancelled", to: "draft", label: "ฟื้นหนังสือเดิม", actor: "system", driven: true,
+        guard: (c, st, i) => i === "prd" && st.pa === "pending_pr" ? null : "ต้องมี พจ.1 ค้างที่ pending_pr",
+        guardText: "พจ.1 ค้าง pending_pr", effects: ["_restart_chain, เลขเดิม", "ไม่มี callback"],
+        ref: "purchase_request_approval/models/purchase_request.py:55" },
+      { key: "send", from: "draft", to: "circulating", label: "ส่ง", actor: "sender",
+        guardText: "มี gating step + ขั้นออกเลข", effects: ["auto-sign ขั้นผู้ส่ง", "→ _on_sarabun_circulating"],
+        ref: "agx_sarabun/models/sarabun_document.py:792" },
+      { key: "resend", from: "returned", to: "circulating", label: "ส่งใหม่", actor: "sender",
+        effects: ["action_send อีกครั้ง → _on_sarabun_circulating"], ref: "agx_sarabun/models/sarabun_document.py:792" },
+      { key: "complete", from: "circulating", to: "completed", label: "อนุมัติ/ลงนามครบ", actor: "approver",
+        effects: ["ออกเลข (ถ้ายังไม่มี)", "freeze PDF", "→ _on_sarabun_completed"], ref: "agx_sarabun/models/sarabun_document.py:1075" },
+      { key: "return", from: "circulating", to: "returned", label: "ตีกลับ", actor: "approver",
+        effects: ["บังคับเหตุผล", "archive รอบเดิม, attempt_seq + 1", "→ _on_sarabun_returned"], ref: "agx_sarabun/models/sarabun_document.py:1090" },
+      { key: "pullback", from: "circulating", to: "returned", label: "ดึงกลับ", actor: "sender",
+        guard: (c) => c.hasSigned ? "มีผู้ลงนามแล้ว" : null, guardText: "ยังไม่มีผู้ลงนาม (has_signed = False)",
+        effects: ["→ _on_sarabun_recalled → returned hook"], ref: "agx_sarabun/models/sarabun_document.py:920" },
+      { key: "reject", from: "circulating", to: "rejected", label: "ปฏิเสธ", actor: "approver",
+        effects: ["void เลข", "→ _on_sarabun_rejected"], ref: "agx_sarabun/models/sarabun_document.py:1121" },
+      { key: "cancel_send", from: "circulating", to: "cancelled", label: "ยกเลิกการส่ง", actor: "sender", cancel: true,
+        guard: (c) => c.hasSigned ? "มีผู้ลงนามแล้ว" : null, guardText: "ยังไม่มีผู้ลงนาม (has_signed = False)",
+        effects: ["void เลข", "→ _on_sarabun_cancelled"], ref: "agx_sarabun/models/sarabun_document.py:937" },
+      { key: "void_by_pa", from: "completed", to: "cancelled", label: "ถูกยกเลิกโดย พจ.1", actor: "pa", driven: true,
+        effects: ["sudo write ตรง ๆ — ไม่มี callback, ไม่ void เลข"], ref: "purchase_request_approval/models/purchase_request_approval.py:522" },
+    ],
+  },
+
+  // --------------------------------------------- purchase.request.approval
+  pa: {
+    model: "purchase.request.approval",
+    S: {
+      none:             { th: "ยังไม่มี พจ.1", x: 90, y: 220, initial: true, ghost: true, desc: "รอหนังสือของ พ.1 อนุมัติ (สาย non e-GP)" },
+      draft:            { th: "ร่าง", x: 340, y: 220, editable: true, desc: "เลือก contract_mode (ใช้/ไม่ใช้ PO) แล้วสร้างหนังสือ" },
+      pending_pr:       { th: "รอ พ.1 แก้ไข", x: 340, y: 430, desc: "ตีกลับ/แก้ไข — เก็บเลข พจ.1 ไว้ รอ พ.1 ผ่านหนังสือใหม่" },
+      to_approve:       { th: "รออนุมัติ", x: 600, y: 220, desc: "หนังสือของ พจ.1 เวียนอยู่ — ออกเลข พจ.1" },
+      sarabun_returned: { th: "สารบรรณตีกลับ", x: 600, y: 430, editable: true, desc: "แก้แล้วส่งหนังสือใหม่" },
+      approved:         { th: "อนุมัติ", x: 860, y: 220, desc: "สร้าง PO (with_po) หรือขอเบิก/ตรวจรับ (no_po)" },
+      returned:         { th: "ถูกตีกลับจากการเบิกจ่าย", x: 1120, y: 220, desc: "เจ้าหน้าที่เบิกจ่ายตีกลับ DR ให้แก้ข้อมูล" },
+      rejected:         { th: "ไม่อนุมัติ", x: 860, y: 40, final: true, desc: "" },
+      cancelled:        { th: "ยกเลิก", x: 860, y: 430, final: true, desc: "" },
+    },
+    T: [
+      { key: "create", from: "none", to: "draft", label: "สร้าง พจ.1 อัตโนมัติ", actor: "system", driven: true,
+        effects: ["copy lines, ผู้ขาย, VAT จาก พ.1", "ออกเลข พจ.1"], ref: "purchase_request_approval/models/purchase_request.py:187" },
+      { key: "revive", from: "pending_pr", to: "draft", label: "ปลุก พจ.1 (เลขเดิม)", actor: "system", driven: true,
+        effects: ["sync ข้อมูลจาก พ.1 ที่แก้แล้ว"], ref: "purchase_request_approval/models/purchase_request.py:109" },
+      { key: "create_sarabun", from: "draft", to: "draft", label: "Create Sarabun", actor: "officer",
+        guardText: "contract_mode ต้องเลือก, ผ่าน exception", effects: ["สร้างหนังสือของ พจ.1"],
+        ref: "purchase_request_approval/views/purchase_request_approval_views.xml:70" },
+      { key: "revise", from: "draft", to: "pending_pr", label: "ตีกลับ/แก้ไข", actor: "officer",
+        effects: ["wizard ใส่เหตุผล", "พ.1 → to_verify, หนังสือ พ.1 → cancelled"], ref: "purchase_request_approval/models/purchase_request_approval.py:548" },
+      { key: "sb_circulating", from: "draft", to: "to_approve", label: "หนังสือเริ่มเวียน", actor: "sarabun", driven: true,
+        effects: ["ออกเลข พจ.1"], ref: "purchase_request_approval/models/purchase_request_approval.py:704" },
+      { key: "sb_circulating", from: "sarabun_returned", to: "to_approve", label: "ส่งหนังสือใหม่", actor: "sarabun", driven: true,
+        effects: [], ref: "purchase_request_approval/models/purchase_request_approval.py:726" },
+      { key: "sb_ok", from: "to_approve", to: "approved", label: "หนังสืออนุมัติ", actor: "sarabun", driven: true,
+        effects: ["approval_date", "activity สร้าง PO"], ref: "purchase_request_approval/models/purchase_request_approval.py:712" },
+      { key: "sb_rejected", from: "to_approve", to: "rejected", label: "หนังสือไม่อนุมัติ", actor: "sarabun", driven: true,
+        effects: ["พ.1 button_rejected"], ref: "purchase_request_approval/models/purchase_request_approval.py:717" },
+      { key: "sb_returned", from: "to_approve", to: "sarabun_returned", label: "หนังสือถูกตีกลับ", actor: "sarabun", driven: true,
+        effects: ["ล้าง exception"], ref: "purchase_request_approval/models/purchase_request_approval.py:722" },
+      { key: "sb_cancelled", from: "to_approve", to: "cancelled", label: "ยกเลิกการส่งหนังสือ", actor: "sarabun", driven: true, cancel: true,
+        effects: ["cascade ยกเลิก พ.1", "ยกเลิกใบจองงบ"], set: { reserved: false }, ref: "purchase_request_approval/models/purchase_request_approval.py:733" },
+      { key: "cancel", from: ["to_approve", "sarabun_returned"], to: "cancelled", label: "ยกเลิก", actor: "officer", cancel: true,
+        effects: ["wizard ใส่เหตุผล", "พ.1 → cancelled", "⚠ ไม่ยกเลิกใบจองงบ / ไม่แตะหนังสือ"], ref: "purchase_request_approval/models/purchase_request_approval.py:455" },
+      { key: "reset", from: ["to_approve", "cancelled", "rejected", "approved"], to: "draft", label: "Reset", actor: "manager",
+        effects: ["write state ตรง ๆ — ไม่แตะ พ.1 / หนังสือ", "approved → ต้องเป็น ERP manager"], ref: "purchase_request_approval/models/purchase_request_approval.py:350" },
+      { key: "create_po", from: "approved", to: "approved", label: "Create Purchase Order", actor: "officer",
+        guard: (c) => c.usePO ? null : "contract_mode = no_po", guardText: "with_po, ยังไม่มี PO",
+        effects: ["สร้าง PO ผ่าน พ.1"], ref: "purchase_request_approval_disbursement/models/purchase_request_approval.py:127" },
+      { key: "dr_return", from: "approved", to: "returned", label: "ใบขอเบิกถูกตีกลับ", actor: "disb",
+        guard: (c) => c.usePO ? "with_po — DR ตีกลับไปที่ PO/ตรวจรับ" : null, guardText: "no_po, DR signed/in_progress",
+        effects: ["To-Do ให้ผู้สร้าง พจ.1 แก้ไข"], ref: "disbursement/models/disbursement_return_source.py:74" },
+      { key: "confirm_correction", from: "returned", to: "approved", label: "ยืนยันการแก้ไข", actor: "officer",
+        effects: ["ส่งข้อมูลที่แก้กลับไปที่ DR"], ref: "disbursement/models/disbursement_return_source.py:85" },
+    ],
+  },
+
+  // -------------------------------------------------------- purchase.order
+  po: {
+    model: "purchase.order",
+    S: {
+      none:         { th: "ยังไม่มี PO", x: 90, y: 220, initial: true, ghost: true, desc: "รอ พ.1 สร้าง PO (หลัง พจ.1 อนุมัติ หรือ e-GP)" },
+      draft:        { th: "ร่าง", x: 340, y: 220, desc: "PO ถูกสร้างแล้ว — พ.1 เป็น done ไปแล้ว" },
+      sent:         { th: "Sent", x: 340, y: 420, desc: "กด Print ใบสั่งซื้อ (purchase_no_rfq)" },
+      "to approve": { th: "To Approve", x: 600, y: 40, desc: "เฉพาะบริษัทที่ตั้ง po_double_validation = two_step" },
+      purchase:     { th: "In Progress", x: 600, y: 220, desc: "ยืนยันแล้ว — ตรวจรับ (WA), รับของ, ขอเบิก (DR)" },
+      returned:     { th: "ถูกตีกลับจากการเบิกจ่าย", x: 600, y: 420, desc: "DR ตีกลับมาที่ PO (กรณีไม่มี WA)" },
+      done:         { th: "Done", x: 860, y: 220, desc: "ไม่มีอะไรย้ายมา done อัตโนมัติ" },
+      cancel:       { th: "Cancelled", x: 860, y: 40, desc: "PR line purchase_state = cancel แต่ พ.1 ยังเป็น done" },
+    },
+    T: [
+      { key: "create", from: "none", to: "draft", label: "สร้าง PO", actor: "system", driven: true,
+        effects: ["copy budget, OU, ปีงบ, กรรมการ จาก พ.1/พจ.1"], ref: "purchase_request_kmitl/wizards/purchase_request_line_make_purchase_order.py:8" },
+      { key: "print", from: "draft", to: "sent", label: "Print", actor: "officer",
+        effects: [], ref: "OCA purchase_no_rfq/models/purchase_order.py:14" },
+      { key: "confirm", from: ["draft", "sent"], to: "purchase", label: "Confirm PO", actor: "officer",
+        guard: (c) => c.poTwoStep ? "two_step → ไป To Approve" : null, guardText: "one_step",
+        effects: ["ตรวจ exception", "manual delivery — ยังไม่สร้าง picking", "ไม่แตะงบ / พ.1"], ref: "purchase_manual_delivery_kmitl/views/purchase_order_views.xml:12" },
+      { key: "confirm_2step", from: ["draft", "sent"], to: "to approve", label: "Confirm PO [two_step]", actor: "officer",
+        guard: (c) => c.poTwoStep ? null : "one_step", guardText: "po_double_validation = two_step",
+        effects: [], ref: "odoo/addons/purchase/models/purchase.py:497" },
+      { key: "approve", from: "to approve", to: "purchase", label: "Approve", actor: "manager",
+        effects: [], ref: "odoo/addons/purchase/models/purchase.py:486" },
+      { key: "done", from: "purchase", to: "done", label: "Done", actor: "officer",
+        effects: [], ref: "purchase_order_kmitl/views/purchase_order_views.xml:93" },
+      { key: "cancel", from: "purchase", to: "cancel", label: "Cancel PO", actor: "officer",
+        guardText: "ยังไม่มีบิล posted / ยังไม่รับของ", effects: ["⚠ ไม่ปล่อยใบจองงบ", "พ.1 ไม่ย้อนกลับ"], ref: "purchase_order_kmitl/views/purchase_order_views.xml:86" },
+      { key: "reset", from: ["done", "cancel"], to: "draft", label: "Set to Draft", actor: "officer",
+        effects: [], ref: "purchase_order_kmitl/views/purchase_order_views.xml:90" },
+      { key: "dr_return", from: "purchase", to: "returned", label: "ใบขอเบิกถูกตีกลับ", actor: "disb",
+        guardText: "DR ไม่มี WA", effects: ["To-Do ให้ผู้สร้าง PO แก้ไข"], ref: "purchase_order_disbursement/models/purchase_order.py:9" },
+      { key: "confirm_correction", from: "returned", to: "purchase", label: "ยืนยันการแก้ไข", actor: "officer",
+        effects: [], ref: "disbursement/models/disbursement_return_source.py:85" },
+    ],
+  },
+};
+
+const INST = {
+  pr:  { m: "pr",  short: "พ.1",          label: "พ.1 · purchase.request", color: "#5b8cff" },
+  prd: { m: "doc", short: "หนังสือ พ.1",   label: "หนังสือสารบรรณของ พ.1 · sarabun.document", color: "#c084fc" },
+  pa:  { m: "pa",  short: "พจ.1",         label: "พจ.1 · purchase.request.approval", color: "#f472b6" },
+  pad: { m: "doc", short: "หนังสือ พจ.1",  label: "หนังสือสารบรรณของ พจ.1 · sarabun.document", color: "#e879f9" },
+  po:  { m: "po",  short: "PO",           label: "ใบสั่งซื้อ · purchase.order", color: "#3dd6a3" },
+};
+const ORDER = ["pr", "prd", "pa", "pad", "po"];
+
+// Firing [inst][key] also fires, on each linked instance, the first key that is enabled.
+const L = (inst, ...keys) => ({ inst, keys });
+const CASCADE = {
+  pr: {
+    create_sarabun: [L("prd", "create", "resume")],
+    sb_ok: [L("pa", "create", "revive")],
+    make_po: [L("po", "create")],
+    egp_po: [L("po", "create")],
+  },
+  prd: {
+    send: [L("pr", "sb_circulating")],
+    resend: [L("pr", "sb_circulating")],
+    complete: [L("pr", "sb_ok_egp", "sb_ok")],
+    return: [L("pr", "sb_returned")],
+    pullback: [L("pr", "sb_returned")],
+    reject: [L("pr", "sb_rejected")],
+    cancel_send: [L("pr", "sb_cancelled")],
+  },
+  pa: {
+    create_sarabun: [L("pad", "create")],
+    sb_ok: [L("pr", "pa_ok", "pa_ok_nopo")],
+    sb_rejected: [L("pr", "pa_rejected")],
+    sb_cancelled: [L("pr", "pa_cancelled")],
+    cancel: [L("pr", "pa_cancelled")],
+    revise: [L("pr", "pa_revise"), L("prd", "void_by_pa")],
+    create_po: [L("pr", "make_po")],
+  },
+  pad: {
+    send: [L("pa", "sb_circulating")],
+    resend: [L("pa", "sb_circulating")],
+    complete: [L("pa", "sb_ok")],
+    return: [L("pa", "sb_returned")],
+    pullback: [L("pa", "sb_returned")],
+    reject: [L("pa", "sb_rejected")],
+    cancel_send: [L("pa", "sb_cancelled")],
+  },
+};
+
+const VIEWS = [
+  { id: "overview", label: "ภาพรวม" },
+  { id: "pr", label: "พ.1", sub: "purchase.request" },
+  { id: "prd", label: "หนังสือ พ.1", sub: "sarabun.document" },
+  { id: "pa", label: "พจ.1", sub: "purchase.request.approval" },
+  { id: "pad", label: "หนังสือ พจ.1", sub: "sarabun.document" },
+  { id: "po", label: "PO", sub: "purchase.order" },
+];
+
+// ===========================================================================
+// Engine
+// ===========================================================================
+const INIT_ST = { pr: "draft", prd: "none", pa: "none", pad: "none", po: "none" };
+const INIT_CTX = { cost: 50000, egpId: false, usePO: true, reserved: false, hasSigned: false, poTwoStep: false };
+let st = { ...INIT_ST }, ctx = { ...INIT_CTX };
+let history = [];   // { st, ctx, steps }
+let lastSteps = [];
+let changed = new Set();
+
+const mach = (inst) => M[INST[inst].m];
+const froms = (t) => (Array.isArray(t.from) ? t.from : [t.from]);
+const tFor = (inst, key, s) => mach(inst).T.find((t) => t.key === key && froms(t).includes(s));
+const stLabel = (inst, s) => `${s} (${mach(inst).S[s].th})`;
+
+function plan(inst, key, S, C, depth = 0) {
+  const t = tFor(inst, key, S[inst]);
+  if (!t) {
+    const any = mach(inst).T.find((x) => x.key === key);
+    return { ok: false, reason: `${INST[inst].short} ต้องอยู่ที่ ${any ? froms(any).join("/") : "?"} (ตอนนี้ ${S[inst]})` };
+  }
+  if (depth > 6) return { ok: false, reason: "loop" };
+  const g = t.guard && t.guard(C, S, inst);
+  if (g) return { ok: false, reason: `${INST[inst].short}: ${g}` };
+  S = { ...S, [inst]: t.to };
+  C = { ...C, ...(t.set || {}) };
+  const steps = [{ inst, t }];
+  for (const link of (CASCADE[inst] || {})[key] || []) {
+    let res = null, why = null;
+    for (const k of link.keys) {
+      const r = plan(link.inst, k, S, C, depth + 1);
+      if (r.ok) { res = r; break; }
+      why = why || r.reason;
+    }
+    if (!res) return { ok: false, reason: why };
+    steps.push(...res.steps); S = res.S; C = res.C;
+  }
+  return { ok: true, steps, S, C };
+}
+
+// Driven transitions (callbacks) are fired by finding the event that causes them.
+function drivers(inst, key) {
+  const out = [];
+  for (const [dInst, map] of Object.entries(CASCADE))
+    for (const [dKey, links] of Object.entries(map))
+      if (links.some((l) => l.inst === inst && l.keys.includes(key))) out.push([dInst, dKey]);
+  return out;
+}
+
+function resolve(inst, t, depth = 0) {
+  if (!t.driven) return plan(inst, t.key, st, ctx);
+  let why = null;
+  for (const [dInst, dKey] of drivers(inst, t.key)) {
+    const dT = tFor(dInst, dKey, st[dInst]);
+    let r;
+    if (!dT) {
+      const any = mach(dInst).T.find((x) => x.key === dKey);
+      r = { ok: false, reason: `รอ ${INST[dInst].short} "${any.label}" (ต้องอยู่ที่ ${froms(any).join("/")})` };
+    } else r = depth < 4 ? resolve(dInst, dT, depth + 1) : { ok: false, reason: "loop" };
+    if (r.ok && r.steps.some((s) => s.inst === inst && s.t === t)) return { ...r, driver: r.steps[0] };
+    why = why || r.reason || "เส้นทางนี้ไม่ได้เลือก event นี้";
+  }
+  return { ok: false, reason: why || "ไม่มี driver" };
+}
+
+function fire(r) {
+  if (!r.ok) return;
+  history.push({ st: { ...st }, ctx: { ...ctx }, steps: r.steps });
+  const before = { ...st };
+  st = r.S; ctx = r.C;
+  lastSteps = r.steps.map((s) => ({ inst: s.inst, from: before[s.inst], to: s.t.to }));
+  changed = new Set(r.steps.map((s) => s.inst));
+  render(true);
+}
+function undo() {
+  const h = history.pop();
+  if (!h) return;
+  st = h.st; ctx = h.ctx;
+  lastSteps = []; changed = new Set();
+  render();
+}
+function reset() { history = []; st = { ...INIT_ST }; ctx = { ...INIT_CTX }; lastSteps = []; changed = new Set(); render(); }
+
+// ===========================================================================
+// Rendering
+// ===========================================================================
+const NS = "http://www.w3.org/2000/svg";
+const $ = (id) => document.getElementById(id);
+const el = (tag, attrs = {}, parent) => {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+};
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+function borderPoint(s, tx, ty) {
+  const dx = tx - s.x, dy = ty - s.y;
+  const k = Math.min((W / 2) / Math.abs(dx || 1e-9), (H / 2) / Math.abs(dy || 1e-9));
+  return [s.x + dx * k, s.y + dy * k];
+}
+function edgeGeom(a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+  const nx = -dy / len, ny = dx / len, bend = Math.min(60, 18 + len * 0.08);
+  const cx = (a.x + b.x) / 2 + nx * bend, cy = (a.y + b.y) / 2 + ny * bend;
+  const [x1, y1] = borderPoint(a, cx, cy), [x2, y2] = borderPoint(b, cx, cy);
+  return { d: `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`, mx: 0.25 * x1 + 0.5 * cx + 0.25 * x2, my: 0.25 * y1 + 0.5 * cy + 0.25 * y2 };
+}
+function loopGeom(a) {
+  const y = a.y - H / 2;
+  return { d: `M${a.x - 24},${y} C${a.x - 44},${y - 58} ${a.x + 44},${y - 58} ${a.x + 24},${y}`, mx: a.x, my: y - 50 };
+}
+
+function bounds(S) {
+  const v = Object.values(S), pad = 60;
+  return { x: Math.min(...v.map((s) => s.x)) - W / 2 - pad, y: Math.min(...v.map((s) => s.y)) - H / 2 - pad - 40,
+    x2: Math.max(...v.map((s) => s.x)) + W / 2 + pad, y2: Math.max(...v.map((s) => s.y)) + H / 2 + pad };
+}
+
+function drawGraph(svg, inst, opts) {
+  const { labels, showAll, showCancel } = opts;
+  svg.innerHTML = "";
+  const m = mach(inst), cur = st[inst];
+  const defs = el("defs", {}, svg);
+  defs.innerHTML = `<filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>` +
+    Object.entries({ edge: "#3a4152", out: "#5b8cff", blocked: "#ffb547", taken: "#3dd6a3" }).map(([k, c]) =>
+      `<marker id="arr-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${c}"/></marker>`).join("");
+
+  const evals = new Map();
+  for (const t of m.T) if (froms(t).includes(cur)) evals.set(t, resolve(inst, t));
+  const visited = new Set([cur, ...history.flatMap((h) => h.steps.filter((s) => s.inst === inst).map((s) => s.t.to))]);
+  const reachable = new Set([...evals].filter(([, r]) => r.ok).map(([t]) => t.to));
+  const taken = lastSteps.filter((s) => s.inst === inst);
+
+  const groups = new Map();
+  for (const t of m.T) for (const f of froms(t)) {
+    const k = f + ">" + t.to;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(t);
+  }
+  const gE = el("g", {}, svg), gN = el("g", {}, svg), gL = el("g", {}, svg);
+  for (const [k, ts] of groups) {
+    const [from, to] = k.split(">");
+    const isOut = from === cur;
+    if (!isOut && ts.every((t) => t.cancel) && !showCancel) continue;
+    if (!isOut && !showAll) continue;
+    const g = from === to ? loopGeom(m.S[from]) : edgeGeom(m.S[from], m.S[to]);
+    const blocked = isOut && ts.every((t) => !evals.get(t)?.ok);
+    const isTaken = taken.some((s) => s.from === from && s.to === to);
+    let cls = "edge", mk = "edge";
+    if (isOut) { cls += " out"; mk = "out"; if (blocked) { cls += " blocked"; mk = "blocked"; } }
+    else if (isTaken) { cls += " taken"; mk = "taken"; }
+    else if (evals.size) cls += " dim";
+    el("path", { d: g.d, class: cls, "marker-end": `url(#arr-${mk})` }, gE);
+    if (isOut && labels) ts.forEach((t, i) => {
+      const r = evals.get(t);
+      const lg = el("g", { class: "elabel" + (r.ok ? "" : " blocked") + (t.driven ? " driven" : "") }, gL);
+      const txt = (r.ok ? "" : "⛔ ") + (t.driven ? "⚡ " : "") + t.label;
+      const tw = txt.length * 7.2 + 16, y = g.my + (i - (ts.length - 1) / 2) * 24;
+      el("rect", { x: g.mx - tw / 2, y: y - 10, width: tw, height: 20, rx: 5 }, lg);
+      el("text", { x: g.mx, y: y + 4, "text-anchor": "middle" }, lg).textContent = txt;
+      el("title", {}, lg).textContent = t.key + (r.ok ? "" : "\n⛔ " + r.reason);
+      lg.addEventListener("click", (e) => { e.stopPropagation(); fire(r); });
+    });
+  }
+  const init = Object.entries(m.S).find(([, s]) => s.initial)[1];
+  el("circle", { cx: init.x - W / 2 - 34, cy: init.y, r: 6, fill: "#e6e8ee" }, gN);
+  el("path", { d: `M${init.x - W / 2 - 28},${init.y} L${init.x - W / 2 - 2},${init.y}`, stroke: "#e6e8ee", "stroke-width": 1.5, "marker-end": "url(#arr-edge)" }, gN);
+  for (const [k, s] of Object.entries(m.S)) {
+    let cls = "node";
+    if (s.final) cls += " final";
+    if (s.ghost) cls += " ghost";
+    if (k === cur) cls += " active" + (opts.flash && changed.has(inst) ? " flash" : "");
+    else if (reachable.has(k)) cls += " reachable";
+    if (visited.has(k)) cls += " visited";
+    const g = el("g", { class: cls, transform: `translate(${s.x - W / 2},${s.y - H / 2})` }, gN);
+    el("rect", { class: "box", width: W, height: H, rx: s.final ? 14 : 9 }, g);
+    if (s.final) el("rect", { x: 4, y: 4, width: W - 8, height: H - 8, rx: 11, fill: "none", stroke: "#4a3036" }, g);
+    el("text", { x: 12, y: 21, class: "k" }, g).textContent = k;
+    el("text", { x: 12, y: 42, class: "n" }, g).textContent = s.th;
+    if (reachable.has(k) && k !== cur) g.addEventListener("click", () => {
+      const hit = [...evals].find(([t, r]) => t.to === k && r.ok);
+      if (hit) fire(hit[1]);
+    });
+  }
+}
+
+function eventCard(inst, t, r, detailed) {
+  const a = ACTORS[t.actor];
+  const b = document.createElement("button");
+  b.className = "event" + (r.ok ? "" : " blocked");
+  const others = r.ok ? r.steps.filter((s) => !(s.inst === inst && s.t === t)) : [];
+  const before = { ...st };
+  const casc = others.map((s) => {
+    const isDriver = r.driver && s === r.driver;
+    return `<div>${isDriver ? "⚡ เกิดจาก" : "↳"} <b>${INST[s.inst].short}</b>: ${isDriver ? esc(s.t.label) + " · " : ""}<code>${before[s.inst]}</code> → <code>${s.t.to}</code></div>`;
+  }).join("");
+  b.innerHTML = `
+    <div class="top"><span class="label">${t.driven ? "⚡ " : ""}${esc(t.label)}</span><span class="to">→ ${esc(t.to)}</span></div>
+    <div class="meta"><span class="actor" style="background:${a.c}22;color:${a.c}">${a.th}</span><code>${t.key}</code></div>
+    ${!r.ok ? `<div class="guard">⛔ ${esc(r.reason)}</div>` : t.guardText ? `<div class="guard pass">✓ ${esc(t.guardText)}</div>` : ""}
+    ${casc ? `<div class="casc">${casc}</div>` : ""}
+    ${detailed && t.effects.length ? `<ul class="fx">${t.effects.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : ""}
+    ${detailed ? `<div class="ref">${t.ref}</div>` : ""}`;
+  b.addEventListener("click", () => fire(r));
+  return b;
+}
+
+function ctxPanel() {
+  const d = document.createElement("div");
+  d.innerHTML = `<h2>Context (เงื่อนไข guard)</h2><div class="ctx">
+    <label>estimated_cost (บาท) <input type="number" data-k="cost" min="0" step="1000" value="${ctx.cost}"></label>
+    <div class="hint">${ctx.cost > 100000 ? "→ is_egp = True (สาย e-GP, ไม่มี พจ.1)" : "→ is_egp = False (สาย พจ.1)"}</div>
+    <label><span>กรอก <code>egp_project_id</code> แล้ว</span><input type="checkbox" data-k="egpId" ${ctx.egpId ? "checked" : ""}></label>
+    <label><span>พจ.1 <code>contract_mode = with_po</code></span><input type="checkbox" data-k="usePO" ${ctx.usePO ? "checked" : ""}></label>
+    <label><span>ใบจองงบยืนยันแล้ว</span><input type="checkbox" data-k="reserved" ${ctx.reserved ? "checked" : ""}></label>
+    <label><span>หนังสือมีผู้ลงนามแล้ว <code>has_signed</code></span><input type="checkbox" data-k="hasSigned" ${ctx.hasSigned ? "checked" : ""}></label>
+    <label><span>PO <code>two_step</code> approval</span><input type="checkbox" data-k="poTwoStep" ${ctx.poTwoStep ? "checked" : ""}></label>
+  </div>`;
+  d.querySelectorAll("input").forEach((i) => i.addEventListener("change", () => {
+    ctx[i.dataset.k] = i.type === "number" ? +i.value || 0 : i.checked;
+    render();
+  }));
+  return d;
+}
+
+function logPanel() {
+  const d = document.createElement("div");
+  d.innerHTML = `<h2>ประวัติ</h2><ol class="log">${history.length ? history.map((h) =>
+    `<li>${h.steps.map((s, i) => `${i ? "↳ " : ""}<b>${INST[s.inst].short}</b> ${esc(s.t.label)} → <code>${s.t.to}</code>`).join("<br>")}</li>`).join("")
+    : "<li>ยังไม่มี — กด event หรือคลิก state ที่ไฮไลต์</li>"}</ol>`;
+  return d;
+}
+
+let view = location.hash.slice(1) || "overview";
+let vb = null;
+const opts = { showAll: true, showCancel: false };
+
+function render(flash = false) {
+  if (!VIEWS.some((v) => v.id === view)) view = "overview";
+  $("nav").innerHTML = VIEWS.map((v) => `<a href="#${v.id}" class="${v.id === view ? "on" : ""}">${v.label}${v.sub ? `<small>${v.sub}</small>` : ""}</a>`).join("");
+  $("strip").innerHTML = ORDER.map((i) => `<div class="chip ${flash && changed.has(i) ? "changed" : ""}" data-i="${i}">
+    <span class="dot" style="background:${INST[i].color}"></span>${INST[i].short} <code>${st[i]}</code></div>`).join("");
+  $("strip").querySelectorAll(".chip").forEach((c) => c.addEventListener("click", () => (location.hash = c.dataset.i)));
+  $("undo").disabled = !history.length;
+  const main = $("main"), side = $("side");
+  side.innerHTML = "";
+
+  if (view === "overview") {
+    main.innerHTML = `<div class="grid">${ORDER.map((i, n) => `<div class="mini ${n === 0 ? "wide" : ""}">
+      <div class="hd"><span><span class="dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${INST[i].color}"></span> ${INST[i].label}</span><a href="#${i}">เปิด →</a></div>
+      <svg id="mini-${i}"></svg></div>`).join("")}</div>`;
+    for (const i of ORDER) {
+      const svg = $("mini-" + i), b = bounds(mach(i).S);
+      svg.setAttribute("viewBox", `${b.x} ${b.y} ${b.x2 - b.x} ${b.y2 - b.y}`);
+      drawGraph(svg, i, { labels: false, showAll: true, showCancel: false, flash });
+    }
+    side.insertAdjacentHTML("beforeend", `<h2>Events ที่ทำได้ทั้งหมด</h2><div class="hint">⚡ = เกิดจาก callback ของเอกสารอื่น — กดแล้วระบบจะไล่หา event ต้นเหตุให้</div>`);
+    for (const i of ORDER) {
+      const ts = mach(i).T.filter((t) => froms(t).includes(st[i]));
+      if (!ts.length) continue;
+      side.insertAdjacentHTML("beforeend", `<h3>${INST[i].short} <code>${st[i]}</code></h3>`);
+      const rs = ts.map((t) => [t, resolve(i, t)]).sort((a, b) => b[1].ok - a[1].ok);
+      for (const [t, r] of rs) side.appendChild(eventCard(i, t, r, false));
+    }
+    side.insertAdjacentHTML("beforeend", `<h2>หมายเหตุ</h2><div class="note"><ul>
+      <li>สถานะ PO ไม่ย้อนกลับไปที่ พ.1 / พจ.1 — พ.1 เป็น done ตั้งแต่สร้าง PO</li>
+      <li>ไม่ได้จำลอง: admin reset หนังสือ (agx_sarabun_reset), ใบขอเบิก/ตรวจรับ (DR/WA), ทำสำเนาหนังสือที่ถูกปฏิเสธ</li>
+      <li>สถานะ <code>approved</code> ของ OCA ใน พ.1 ถูกข้ามใน flow KMITL</li></ul></div>`);
+  } else {
+    const inst = view;
+    main.innerHTML = `<svg id="big"></svg><div class="toolbar">
+      <label><input type="checkbox" id="showAll" ${opts.showAll ? "checked" : ""}> แสดงเส้นทั้งหมด</label>
+      <label><input type="checkbox" id="showCancel" ${opts.showCancel ? "checked" : ""}> แสดงเส้นยกเลิก</label>
+      <button class="btn" id="fit">พอดีจอ</button></div>`;
+    const svg = $("big");
+    drawGraph(svg, inst, { labels: true, ...opts, flash });
+    if (!vb || vb.inst !== inst) fitView(inst); else applyVB();
+    $("showAll").onchange = (e) => { opts.showAll = e.target.checked; render(); };
+    $("showCancel").onchange = (e) => { opts.showCancel = e.target.checked; render(); };
+    $("fit").onclick = () => { fitView(inst); };
+    bindPanZoom(svg);
+    const s = mach(inst).S[st[inst]];
+    side.insertAdjacentHTML("beforeend", `<h2>${esc(INST[inst].label)}</h2><div class="current">
+      <div class="key">${st[inst]}</div><div class="name">${s.th}</div><div class="desc">${esc(s.desc)}</div>
+      <div class="tags">${s.initial ? '<span class="tag">initial</span>' : ""}${s.final ? '<span class="tag final">final</span>' : ""}
+      ${s.editable ? '<span class="tag ok">editable</span>' : ""}<span class="tag">steps: ${history.length}</span></div></div>
+      <h2>Events ที่ทำได้</h2>`);
+    const ts = mach(inst).T.filter((t) => froms(t).includes(st[inst]));
+    if (!ts.length) side.insertAdjacentHTML("beforeend", '<div class="hint">ไม่มี event — final state</div>');
+    for (const t of ts) side.appendChild(eventCard(inst, t, resolve(inst, t), true));
+  }
+  side.appendChild(ctxPanel());
+  side.appendChild(logPanel());
+}
+
+// pan / zoom for the single-model view
+function applyVB() { $("big") && $("big").setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`); }
+function fitView(inst) {
+  const b = bounds(mach(inst).S), svg = $("big");
+  const r = svg.clientWidth / svg.clientHeight || 2;
+  let w = b.x2 - b.x, h = b.y2 - b.y;
+  vb = w / h < r ? { inst, x: b.x - (h * r - w) / 2, y: b.y, w: h * r, h } : { inst, x: b.x, y: b.y - (w / r - h) / 2, w, h: w / r };
+  applyVB();
+}
+let drag = null;
+function bindPanZoom(svg) {
+  svg.onmousedown = (e) => { drag = { x: e.clientX, y: e.clientY, v: { ...vb } }; svg.classList.add("dragging"); };
+  svg.onwheel = (e) => {
+    e.preventDefault();
+    const f = Math.exp(e.deltaY * 0.0015), r = svg.getBoundingClientRect();
+    const px = vb.x + ((e.clientX - r.left) / r.width) * vb.w, py = vb.y + ((e.clientY - r.top) / r.height) * vb.h;
+    Object.assign(vb, { x: px - (px - vb.x) * f, y: py - (py - vb.y) * f, w: vb.w * f, h: vb.h * f });
+    applyVB();
+  };
+}
+window.addEventListener("mouseup", () => { drag = null; $("big") && $("big").classList.remove("dragging"); });
+window.addEventListener("mousemove", (e) => {
+  if (!drag || !$("big")) return;
+  const s = vb.w / $("big").clientWidth;
+  vb.x = drag.v.x - (e.clientX - drag.x) * s; vb.y = drag.v.y - (e.clientY - drag.y) * s;
+  applyVB();
+});
+window.addEventListener("hashchange", () => { view = location.hash.slice(1) || "overview"; render(); });
+window.addEventListener("resize", () => { if (view !== "overview") fitView(view); });
+document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); undo(); } });
+$("undo").onclick = undo;
+$("reset").onclick = reset;
+render();
+</script>
 </body>
 </html>
