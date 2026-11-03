@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>State machine — พ.1 → พจ.1 (ไอเดียที่เสนอ)</title>
+<style>
+  :root { --blue:#3b6fd8; --navy:#1f3d7a; --red:#d33; --green:#2f9a2f; --grey:#888; --bg:#f5f7fb; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Sarabun","Thonburi",system-ui,sans-serif; background:var(--bg); color:#222; font-size:14px; }
+  header { background:var(--navy); color:#fff; padding:10px 18px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; font-weight:600; }
+  header label { font-size:13px; display:flex; align-items:center; gap:6px; }
+  header input[type=text] { padding:3px 6px; border-radius:4px; border:0; width:150px; font-family:inherit; }
+  header button { background:#fff; color:var(--navy); border:0; border-radius:4px; padding:5px 10px; cursor:pointer; font-family:inherit; }
+  main { display:grid; grid-template-columns: 1fr 360px; gap:14px; padding:14px; }
+  .card { background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.08); padding:12px 14px; margin-bottom:14px; }
+  .card h2 { font-size:15px; margin:0 0 8px; color:var(--navy); display:flex; justify-content:space-between; align-items:center; }
+  .lane { display:flex; align-items:center; flex-wrap:wrap; gap:4px; margin:4px 0 2px; }
+  .lane .name { width:110px; font-weight:600; color:#444; flex-shrink:0; }
+  .chip { padding:4px 9px; border-radius:14px; border:1.5px solid #d4dae6; color:#8a93a6; background:#fff; font-size:12.5px; white-space:nowrap; transition:all .25s; }
+  .arrow { color:#c4cad6; font-size:11px; }
+  .chip.on { color:#fff; border-color:var(--blue); background:var(--blue); font-weight:600; box-shadow:0 0 0 3px rgba(59,111,216,.18); }
+  .chip.on.bad { background:var(--red); border-color:var(--red); box-shadow:0 0 0 3px rgba(221,51,51,.18); }
+  .chip.on.good { background:var(--green); border-color:var(--green); box-shadow:0 0 0 3px rgba(47,154,47,.18); }
+  .chip.on.lock { background:#666; border-color:#666; }
+  .chip.flash { animation: flash .9s; }
+  @keyframes flash { 0%{transform:scale(1.15)} 100%{transform:scale(1)} }
+  .sub { font-size:12px; color:#777; margin:0 0 6px 114px; min-height:16px; }
+  .actors { display:grid; grid-template-columns: repeat(auto-fill, minmax(250px,1fr)); gap:10px; }
+  .actor { border:1px solid #e3e7ef; border-radius:8px; padding:8px 10px; }
+  .actor h3 { margin:0 0 6px; font-size:13.5px; display:flex; align-items:center; gap:6px; }
+  .actor h3 .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+  .act { display:block; width:100%; text-align:left; margin:4px 0; padding:6px 9px; border-radius:5px; border:1px solid var(--blue); background:#eef3ff; color:var(--navy); cursor:pointer; font-family:inherit; font-size:13.5px; }
+  .act:hover:not(:disabled) { background:var(--blue); color:#fff; }
+  .act.danger { border-color:var(--red); background:#fff0f0; color:#a00; }
+  .act.danger:hover:not(:disabled) { background:var(--red); color:#fff; }
+  .act:disabled { border-color:#ddd; background:#f6f6f6; color:#aaa; cursor:not-allowed; }
+  .act small { display:block; font-size:11.5px; color:#999; margin-top:1px; }
+  .act:not(:disabled) small { color:#6a7c9f; }
+  .none { color:#aaa; font-size:12.5px; font-style:italic; }
+  .log { max-height:calc(100vh - 140px); overflow:auto; }
+  .log ol { padding-left:20px; margin:0; }
+  .log li { margin:0 0 8px; font-size:13px; }
+  .log .who { display:inline-block; background:#2f4f8f; color:#fff; border-radius:4px; padding:0 6px; font-size:11.5px; margin-right:4px; }
+  .log .fx { color:#666; font-size:12px; display:block; margin-top:2px; }
+  .log .why { color:#a05a00; font-size:12px; display:block; }
+  .legend { font-size:12px; color:#666; display:flex; gap:12px; flex-wrap:wrap; margin-top:6px; }
+  .legend span::before { content:""; display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; vertical-align:-1px; background:var(--c); }
+  dialog { border:0; border-radius:10px; padding:18px; width:420px; box-shadow:0 10px 40px rgba(0,0,0,.25); font-family:inherit; }
+  dialog h3 { margin:0 0 8px; color:var(--navy); }
+  dialog textarea { width:100%; height:80px; font-family:inherit; font-size:14px; padding:6px; border:1px solid #ccc; border-radius:5px; }
+  dialog .row { display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
+  dialog button { padding:6px 14px; border-radius:5px; border:1px solid #ccc; background:#fff; cursor:pointer; font-family:inherit; }
+  dialog button.ok { background:var(--blue); color:#fff; border-color:var(--blue); }
+  .err { color:var(--red); font-size:12.5px; min-height:16px; }
+  .rules { font-size:12.5px; color:#555; columns:2; column-gap:24px; margin:0; padding-left:18px; }
+  .rules li { margin-bottom:3px; break-inside:avoid; }
+  .badge { font-size:11.5px; background:#fff6d6; border:1px solid #e5cf6a; color:#6b5300; border-radius:10px; padding:1px 8px; font-weight:normal; }
+</style>
+</head>
+<body>
+<header>
+  <h1>State machine: พ.1 → พจ.1 (ตามไอเดียที่เสนอ)</h1>
+  <label><input type="checkbox" id="egp"> พ.1 แบบ e-GP <span style="opacity:.7">(เปลี่ยนได้ตอนแบบร่าง)</span></label>
+  <label>ผู้สร้าง พจ.1 อัตโนมัติ (งานพัสดุ → การกำหนดค่า): <input type="text" id="creator" placeholder="ว่าง = OdooBot"></label>
+  <button id="undo">↶ ย้อนกลับ</button>
+  <button id="reset">เริ่มใหม่</button>
+</header>
+<main>
+  <section>
+    <div class="card">
+      <h2>สถานะปัจจุบัน <span class="badge" id="last">เริ่มต้น</span></h2>
+      <div id="lanes"></div>
+      <div class="legend">
+        <span style="--c:var(--blue)">สถานะปัจจุบัน</span>
+        <span style="--c:var(--green)">ผ่าน/จบดี</span>
+        <span style="--c:var(--red)">ยกเลิก/ปฏิเสธ</span>
+        <span style="--c:#666">ล็อก (ทำอะไรใน พ.1 ไม่ได้)</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>ปุ่มที่กดได้ตอนนี้ (แยกตามผู้ใช้)</h2>
+      <div class="actors" id="actors"></div>
+    </div>
+    <div class="card">
+      <h2>กฎที่ใช้</h2>
+      <ol class="rules">
+        <li>หนังสือโดนตีกลับ → หนังสือ returned และ พ.1 กลับแบบร่างทันที</li>
+        <li>เจ้าของใบดึงกลับได้ทุกขั้น · ผู้ตรวจสอบ/ผู้ยืนยันงบตีกลับได้ · ต้องใส่เหตุผลทั้งคู่</li>
+        <li>โดนตีกลับ/กลับแบบร่าง → ใบจองเงินยกเลิก แล้วค่อยจองใหม่</li>
+        <li>ยกเลิก พ.1 ได้เฉพาะแบบร่าง และเฉพาะ user_id (ปุ่มแดง)</li>
+        <li>รอพิจารณาให้จัดหา (sent) ทำอะไรใน พ.1 ไม่ได้</li>
+        <li>ปุ่มกลับแบบร่างแสดงตลอด กดไม่ได้เมื่อหนังสือไม่ใช่ draft/returned</li>
+        <li>ส่งหนังสือใหม่ได้เมื่อ พ.1 = to_approve</li>
+        <li>หนังสือโดนปฏิเสธ → ยกเลิกทั้งหมด (พ.1, ใบจองเงิน, หนังสือ)</li>
+        <li>พ.1 ยกเลิกแล้วห้ามกลับแบบร่าง และหนังสือถูกยกเลิกด้วย</li>
+        <li>ผู้สร้าง พจ.1 อัตโนมัติ = ผู้ใช้ที่ตั้งค่าไว้ (ไม่ตั้ง = OdooBot)</li>
+        <li>e-GP ถูกยกเลิก → กดกลับแบบร่างได้</li>
+        <li>พจ.1 แบบร่าง มีแค่ สร้างหนังสือ / ยกเลิก</li>
+        <li>ยกเลิก พจ.1 = ยกเลิกทั้งหมด (พ.1, พจ.1, หนังสือ, ใบจองเงิน) · ได้เฉพาะแบบร่าง</li>
+        <li>หนังสือ พจ.1 โดนตีกลับ → พจ.1 แบบร่าง หนังสือ returned</li>
+        <li>หนังสือ พจ.1 โดนปฏิเสธ → ยกเลิกทั้งหมด</li>
+        <li>พจ.1 อนุมัติแล้วอยากยกเลิก → กลับแบบร่างก่อน แล้วกดยกเลิก</li>
+      </ol>
+    </div>
+  </section>
+  <aside class="card log">
+    <h2>ประวัติการกด</h2>
+    <ol id="log"></ol>
+  </aside>
+</main>
+
+<dialog id="dlg">
+  <h3 id="dlgTitle"></h3>
+  <div style="font-size:13px;color:#666;margin-bottom:6px">กรุณาระบุเหตุผล</div>
+  <textarea id="dlgReason"></textarea>
+  <div class="err" id="dlgErr"></div>
+  <div class="row"><button id="dlgCancel">ปิด</button><button class="ok" id="dlgOk">ยืนยัน</button></div>
+</dialog>
+
+<script>
+// ---------- states (display order) ----------
+const LANES = [
+  { key: "pr", name: "พ.1", states: [
+    ["draft", "แบบร่าง"], ["to_verify", "รอตรวจสอบ"], ["to_verify_budget", "รอยืนยันงบ"],
+    ["to_approve", "รอส่งหนังสือ"], ["sent", "รอพิจารณาให้จัดหา", "lock"], ["in_egp", "รอ e-GP", "good"],
+    ["in_approval", "in_approval", "good"], ["in_progress", "กำลังดำเนินการ", "good"], ["done", "สร้าง PO แล้ว", "good"],
+    ["cancelled", "ยกเลิก", "bad"] ] },
+  { key: "doc", name: "หนังสือ พ.1", states: [
+    ["none", "ยังไม่มี"], ["draft", "ร่าง"], ["circulating", "กำลังเวียน"], ["returned", "รอการแก้ไข (returned)"],
+    ["completed", "เสร็จสิ้น", "good"], ["cancelled", "ยกเลิก", "bad"] ] },
+  { key: "bc", name: "ใบจองเงิน", states: [
+    ["none", "ยังไม่มี"], ["reserved", "จองแล้ว", "good"], ["cancelled", "ยกเลิก", "bad"] ] },
+  { key: "egpStatus", name: "e-GP", egpOnly: true, states: [
+    ["none", "-"], ["waiting", "รอ e-GP"], ["in_progress", "อยู่ในกระบวนการ e-GP"], ["cancelled", "e-GP ถูกยกเลิก", "bad"] ] },
+  { key: "pa", name: "พจ.1", states: [
+    ["none", "ยังไม่มี"], ["draft", "แบบร่าง"], ["to_approve", "รออนุมัติ", "lock"], ["approved", "อนุมัติแล้ว", "good"],
+    ["done", "สร้าง PO แล้ว", "good"], ["cancelled", "ยกเลิก", "bad"] ] },
+  { key: "padoc", name: "หนังสือ พจ.1", states: [
+    ["none", "ยังไม่มี"], ["draft", "ร่าง"], ["circulating", "กำลังเวียน"], ["returned", "รอการแก้ไข (returned)"],
+    ["completed", "เสร็จสิ้น", "good"], ["cancelled", "ยกเลิก", "bad"] ] },
+];
+const LABEL = {};
+LANES.forEach(l => l.states.forEach(([k, t]) => LABEL[l.key + "." + k] = t));
+
+const ACTORS = [
+  ["owner", "เจ้าของใบ (user_id)", "#2f9a2f"],
+  ["verifier", "ผู้ตรวจสอบ", "#16a3a3"],
+  ["committer", "ผู้ยืนยันงบประมาณ", "#5a4fcf"],
+  ["approver", "ผู้อนุมัติหนังสือ พ.1 (สารบรรณ)", "#b0367a"],
+  ["officer", "เจ้าหน้าที่พัสดุ", "#c26a00"],
+  ["paapprover", "ผู้อนุมัติหนังสือ พจ.1 (สารบรรณ)", "#8a2a2a"],
+];
+
+const init = () => ({ pr: "draft", doc: "none", bc: "none", bcNo: 0, egp: false, egpStatus: "none",
+                      pa: "none", paCreator: "", padoc: "none", oldDocs: 0 });
+let S = init();
+const history = [];
+const logItems = [];
+
+// ---------- helpers ----------
+const docEditable = () => ["none", "draft", "returned", "cancelled"].includes(S.doc);
+function cancelBC(fx) {
+  if (S.bc === "reserved") { S.bc = "cancelled"; fx.push(`ใบจองเงิน BC#${S.bcNo} → ยกเลิก`); }
+}
+function cancelDoc(key, fx, label) {
+  if (!["none", "cancelled"].includes(S[key])) { S[key] = "cancelled"; fx.push(`${label} → ยกเลิก`); }
+}
+function cancelAll(fx) {
+  if (S.pa !== "none" && S.pa !== "cancelled") { S.pa = "cancelled"; fx.push("พจ.1 → ยกเลิก"); }
+  cancelDoc("padoc", fx, "หนังสือ พจ.1");
+  cancelDoc("doc", fx, "หนังสือ พ.1");
+  cancelBC(fx);
+  S.pr = "cancelled"; fx.push("พ.1 → ยกเลิก");
+}
+function toDraft(fx) {
+  S.pr = "draft"; fx.push("พ.1 → แบบร่าง");
+  cancelBC(fx);
+}
+
+// ---------- actions: [actor, label, {visible, enabled|reason, reason?:bool, danger, run}] ----------
+const A = [];
+const act = (actor, label, o) => A.push({ actor, label, ...o });
+
+// owner
+act("owner", "ส่งตรวจสอบ", { visible: () => S.pr === "draft",
+  run: fx => { S.pr = "to_verify"; fx.push("พ.1 → รอตรวจสอบ"); } });
+act("owner", "กลับแบบร่าง (ดึงกลับ)", { needReason: true,
+  visible: () => ["to_verify", "to_verify_budget", "to_approve", "sent", "in_egp", "in_progress"].includes(S.pr) && S.pa === "none",
+  why: () => {
+    if (["in_egp", "in_progress"].includes(S.pr)) return S.egpStatus === "cancelled" ? "" : "ได้เมื่อ e-GP ถูกยกเลิก (กฎ 11)";
+    if (!docEditable()) return `หนังสืออยู่ "${LABEL["doc." + S.doc]}" — ได้เมื่อหนังสือเป็น draft/returned (กฎ 6)`;
+    return "";
+  },
+  run: fx => {
+    if (S.egpStatus === "cancelled") { S.egpStatus = "none"; if (S.doc === "completed") { S.oldDocs++; S.doc = "none"; fx.push("หนังสือรอบก่อนเก็บไว้ (เสร็จสิ้น) · รอบใหม่ออกหนังสือใหม่"); } }
+    toDraft(fx);
+  } });
+act("owner", "ยกเลิก 🔴", { danger: true, needReason: true,
+  visible: () => !["cancelled", "done"].includes(S.pr) && S.pa === "none",
+  why: () => S.pr !== "draft" ? "ยกเลิกได้เฉพาะแบบร่าง (กฎ 4)" : "",
+  run: fx => cancelAll(fx) });
+act("owner", "สร้างหนังสือ", { visible: () => S.pr === "to_approve" && ["none", "cancelled"].includes(S.doc),
+  run: fx => { S.doc = "draft"; fx.push("หนังสือ พ.1 → ร่าง"); } });
+act("owner", "ส่งหนังสือ", { visible: () => S.doc === "draft",
+  why: () => S.pr !== "to_approve" ? "ได้เมื่อ พ.1 = รอส่งหนังสือ (to_approve)" : "",
+  run: fx => { S.doc = "circulating"; S.pr = "sent"; fx.push("หนังสือ พ.1 → กำลังเวียน", "พ.1 → รอพิจารณาให้จัดหา"); } });
+act("owner", "ส่งหนังสือใหม่", { visible: () => S.doc === "returned",
+  why: () => S.pr !== "to_approve" ? "ได้เมื่อ พ.1 = to_approve (ต้องส่งตรวจสอบ → ตรวจสอบ → ยืนยันงบใหม่ก่อน) (กฎ 7)" : "",
+  run: fx => { S.doc = "circulating"; S.pr = "sent"; fx.push("หนังสือ พ.1 → กำลังเวียน", "พ.1 → รอพิจารณาให้จัดหา"); } });
+
+// verifier
+act("verifier", "ตรวจสอบ", { visible: () => S.pr === "to_verify",
+  run: fx => { S.pr = "to_verify_budget"; fx.push("พ.1 → รอยืนยันงบ"); } });
+act("verifier", "ตีกลับ", { needReason: true, visible: () => S.pr === "to_verify", run: fx => toDraft(fx) });
+
+// committer
+act("committer", "ยืนยันงบ (จองเงิน)", { visible: () => S.pr === "to_verify_budget",
+  run: fx => { S.bcNo++; S.bc = "reserved"; S.pr = "to_approve"; fx.push(`ใบจองเงิน BC#${S.bcNo} → จองแล้ว`, "พ.1 → รอส่งหนังสือ"); } });
+act("committer", "ตีกลับ", { needReason: true, visible: () => S.pr === "to_verify_budget", run: fx => toDraft(fx) });
+
+// approver (PR หนังสือ)
+act("approver", "อนุมัติหนังสือ", { visible: () => S.doc === "circulating",
+  run: fx => {
+    S.doc = "completed"; fx.push("หนังสือ พ.1 → เสร็จสิ้น");
+    if (S.egp) { S.pr = "in_egp"; S.egpStatus = "waiting"; fx.push("พ.1 → รอ e-GP"); }
+    else {
+      S.pr = "in_approval"; S.pa = "draft"; S.padoc = "none";
+      S.paCreator = document.getElementById("creator").value.trim() || "OdooBot";
+      fx.push("พ.1 → in_approval", `สร้าง พจ.1 อัตโนมัติ (ผู้สร้าง: ${S.paCreator})`);
+    }
+  } });
+act("approver", "ตีกลับหนังสือ", { needReason: true, visible: () => S.doc === "circulating",
+  run: fx => { S.doc = "returned"; fx.push("หนังสือ พ.1 → returned"); toDraft(fx); } });
+act("approver", "ปฏิเสธหนังสือ", { danger: true, needReason: true, visible: () => S.doc === "circulating",
+  run: fx => cancelAll(fx) });
+
+// officer — e-GP
+act("officer", "อยู่ในกระบวนการ e-GP", { visible: () => S.pr === "in_egp" && S.egpStatus === "waiting",
+  run: fx => { S.egpStatus = "in_progress"; S.pr = "in_progress"; fx.push("e-GP → อยู่ในกระบวนการ", "พ.1 → กำลังดำเนินการ"); } });
+act("officer", "บันทึก e-GP ถูกยกเลิก", { danger: true, needReason: true,
+  visible: () => ["waiting", "in_progress"].includes(S.egpStatus),
+  run: fx => { S.egpStatus = "cancelled"; fx.push("e-GP → ถูกยกเลิก (เจ้าของใบกดกลับแบบร่างได้)"); } });
+act("officer", "สร้าง PO (e-GP)", { visible: () => S.egpStatus === "in_progress",
+  run: fx => { S.pr = "done"; fx.push("สร้างใบสั่งซื้อ", "พ.1 → สร้าง PO แล้ว"); } });
+
+// officer — พจ.1
+act("officer", "สร้างหนังสือ พจ.1", { visible: () => S.pa === "draft" && ["none", "returned"].includes(S.padoc),
+  run: fx => {
+    if (S.padoc === "returned") { S.padoc = "circulating"; S.pa = "to_approve"; fx.push("ส่งหนังสือ พจ.1 ฉบับเดิมใหม่ → กำลังเวียน", "พจ.1 → รออนุมัติ"); }
+    else { S.padoc = "draft"; fx.push("หนังสือ พจ.1 → ร่าง"); }
+  } });
+act("officer", "ส่งหนังสือ พจ.1", { visible: () => S.padoc === "draft" && S.pa === "draft",
+  run: fx => { S.padoc = "circulating"; S.pa = "to_approve"; fx.push("หนังสือ พจ.1 → กำลังเวียน", "พจ.1 → รออนุมัติ"); } });
+act("officer", "ยกเลิก พจ.1 🔴", { danger: true, needReason: true,
+  visible: () => ["draft", "to_approve", "approved"].includes(S.pa),
+  why: () => S.pa !== "draft" ? "ยกเลิกได้เฉพาะ พจ.1 แบบร่าง (กฎ 13) — อนุมัติแล้วให้กลับแบบร่างก่อน" : "",
+  run: fx => cancelAll(fx) });
+act("officer", "กลับแบบร่าง พจ.1", { needReason: true, visible: () => S.pa === "approved",
+  run: fx => { S.pa = "draft"; S.pr = "in_approval"; fx.push("พจ.1 → แบบร่าง (เพื่อยกเลิก)", "พ.1 → in_approval"); } });
+act("officer", "สร้าง PO (จาก พจ.1)", { visible: () => S.pa === "approved",
+  run: fx => { S.pa = "done"; S.pr = "done"; fx.push("สร้างใบสั่งซื้อ", "พจ.1 / พ.1 → สร้าง PO แล้ว"); } });
+
+// PA หนังสือ approver
+act("paapprover", "อนุมัติหนังสือ พจ.1", { visible: () => S.padoc === "circulating",
+  run: fx => { S.padoc = "completed"; S.pa = "approved"; S.pr = "in_progress"; fx.push("หนังสือ พจ.1 → เสร็จสิ้น", "พจ.1 → อนุมัติแล้ว", "พ.1 → กำลังดำเนินการ"); } });
+act("paapprover", "ตีกลับหนังสือ พจ.1", { needReason: true, visible: () => S.padoc === "circulating",
+  run: fx => { S.padoc = "returned"; S.pa = "draft"; fx.push("หนังสือ พจ.1 → returned", "พจ.1 → แบบร่าง"); } });
+act("paapprover", "ปฏิเสธหนังสือ พจ.1", { danger: true, needReason: true, visible: () => S.padoc === "circulating",
+  run: fx => cancelAll(fx) });
+
+// ---------- render ----------
+let prev = null;
+function render() {
+  document.getElementById("egp").checked = S.egp;
+  document.getElementById("egp").disabled = S.pr !== "draft";
+  const lanes = document.getElementById("lanes");
+  lanes.innerHTML = "";
+  for (const l of LANES) {
+    if (l.egpOnly && !S.egp) continue;
+    const row = document.createElement("div");
+    row.className = "lane";
+    row.innerHTML = `<span class="name">${l.name}</span>` + l.states.map(([k, t, cls], i) =>
+      `${i ? '<span class="arrow">›</span>' : ""}<span class="chip ${S[l.key] === k ? "on " + (cls || "") : ""} ${prev && prev[l.key] !== S[l.key] && S[l.key] === k ? "flash" : ""}">${t}</span>`).join("");
+    lanes.appendChild(row);
+    const sub = document.createElement("div");
+    sub.className = "sub";
+    if (l.key === "bc" && S.bcNo) sub.textContent = `ใบจองล่าสุด: BC#${S.bcNo}` + (S.bcNo > 1 ? ` (จองมาแล้ว ${S.bcNo} ครั้ง)` : "");
+    if (l.key === "pa" && S.pa !== "none") sub.textContent = `ผู้สร้าง: ${S.paCreator}`;
+    if (l.key === "doc" && S.oldDocs) sub.textContent = `หนังสือรอบก่อน (เสร็จสิ้น) ${S.oldDocs} ฉบับ`;
+    lanes.appendChild(sub);
+  }
+  const box = document.getElementById("actors");
+  box.innerHTML = "";
+  for (const [key, name, color] of ACTORS) {
+    const list = A.filter(a => a.actor === key && a.visible());
+    const div = document.createElement("div");
+    div.className = "actor";
+    div.innerHTML = `<h3><span class="dot" style="background:${color}"></span>${name}</h3>`;
+    if (!list.length) div.innerHTML += `<div class="none">ไม่มีปุ่มในสถานะนี้</div>`;
+    for (const a of list) {
+      const why = a.why ? a.why() : "";
+      const b = document.createElement("button");
+      b.className = "act" + (a.danger ? " danger" : "");
+      b.disabled = !!why;
+      b.innerHTML = a.label + (why ? `<small>กดไม่ได้: ${why}</small>` : a.needReason ? "<small>ต้องใส่เหตุผล</small>" : "");
+      b.onclick = () => fire(a, name);
+      div.appendChild(b);
+    }
+    box.appendChild(div);
+  }
+  document.getElementById("undo").disabled = !history.length;
+  const log = document.getElementById("log");
+  log.innerHTML = logItems.map(i => `<li><span class="who">${i.who}</span>${i.label}${i.reason ? `<span class="why">เหตุผล: ${i.reason}</span>` : ""}<span class="fx">${i.fx.join(" · ")}</span></li>`).join("");
+  log.parentElement.scrollTop = log.parentElement.scrollHeight;
+}
+
+function fire(a, who) {
+  const go = reason => {
+    history.push({ S: JSON.parse(JSON.stringify(S)), n: logItems.length });
+    prev = JSON.parse(JSON.stringify(S));
+    const fx = [];
+    a.run(fx);
+    logItems.push({ who, label: a.label, reason, fx });
+    document.getElementById("last").textContent = `ล่าสุด: ${a.label}`;
+    render();
+  };
+  a.needReason ? ask(a.label, go) : go("");
+}
+
+// ---------- reason dialog ----------
+const dlg = document.getElementById("dlg");
+let pending = null;
+function ask(title, cb) {
+  pending = cb;
+  document.getElementById("dlgTitle").textContent = title;
+  document.getElementById("dlgReason").value = "";
+  document.getElementById("dlgErr").textContent = "";
+  dlg.showModal();
+  document.getElementById("dlgReason").focus();
+}
+document.getElementById("dlgOk").onclick = () => {
+  const r = document.getElementById("dlgReason").value.trim();
+  if (!r) { document.getElementById("dlgErr").textContent = "ต้องใส่เหตุผลก่อนยืนยัน"; return; }
+  dlg.close(); pending(r);
+};
+document.getElementById("dlgCancel").onclick = () => dlg.close();
+
+document.getElementById("egp").onchange = e => { S.egp = e.target.checked; render(); };
+document.getElementById("undo").onclick = () => {
+  const h = history.pop(); if (!h) return;
+  prev = null; S = h.S; logItems.length = h.n;
+  document.getElementById("last").textContent = "ย้อนกลับแล้ว";
+  render();
+};
+document.getElementById("reset").onclick = () => {
+  S = init(); history.length = 0; logItems.length = 0; prev = null;
+  document.getElementById("last").textContent = "เริ่มต้น";
+  render();
+};
+render();
+</script>
+</body>
+</html>
